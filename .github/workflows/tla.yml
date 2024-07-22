@@ -1,0 +1,25 @@
+name: TLA
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  apalache:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-java@v3
+        with:
+          distribution: 'microsoft'
+          java-version: '17'
+      - name: Setup
+        run: |
+          wget https://github.com/informalsystems/apalache/releases/latest/download/apalache.tgz
+          tar zxvf apalache.tgz
+      - name: Typecheck
+        run: |
+          ./apalache/bin/apalache-mc typecheck --features=no-rows pbft.tla
