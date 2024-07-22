@@ -19,7 +19,7 @@ EXTENDS Integers, FiniteSets, TLC
 \* Set of replicas
 \* Castro & Liskov 4 "We denote the set of replicas by R and identify each replica using an integer in {0,..|R|-1}."
 CONSTANT 
-\* @type: Set(Str)    
+\* @type: Set(Str);
     R
 
 N == Cardinality(R)
@@ -30,7 +30,7 @@ ASSUME N = 3*F + 1
 
 \* A fixed primary
 CONSTANT 
-\* @type: Str
+\* @type: Str;
     PRIMARY
 ASSUME PRIMARY \in R
 
@@ -39,7 +39,7 @@ Symmetry == Permutations(R \ {PRIMARY})
 
 \* Byzantine replicas (backups only)
 CONSTANT
-\* @type: Set(Str)    
+\* @type: Set(Str);    
     ByzR
 ASSUME ByzR \subseteq R
 
