@@ -36,4 +36,4 @@ jobs:
       - name: Sany
         run: sany *.tla
       - name: Random exploration with TLC
-        run: tlc -workers auto -simulate num=100 pbft.tla
+        run: tlc -workers auto -simulate num=1000 pbft.tla
