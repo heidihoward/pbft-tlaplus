@@ -10,7 +10,7 @@ EXTENDS Integers, FiniteSets, TLC
 \* We make the following simplifying assumptions:
 \* - Always 4 nodes
 \* - no view changes, 1 fixed primary (node R1) 
-\* - no byzantine behavior
+\* - no byzantine primaries
 \* - no liveness properties
 \* - dummy requests
 \* - one client with concurrent requests
@@ -36,7 +36,7 @@ PRIMARY == "R0"
 \* Don't include the primary in the symmetry set
 Symmetry == Permutations(R \ {PRIMARY})
 
-\* Byzantine replicas
+\* Byzantine replicas (backups only)
 ByzR == {"R2"}
 ASSUME ByzR \subseteq R
 
@@ -58,7 +58,6 @@ Views == {0}
 Digest(m) == m.t
 
 Digests == Tstamps
-
 
 RequestMessages == 
     [t : Tstamps]
@@ -324,8 +323,7 @@ AnyRepliesDebugInv ==
 ----
 \* A variant of spec for modeling byzantine behavior
 
-
-
+\* Any message sent by a Byzantine backup can be injected into the system
 InjectBackupMessage ==
     /\ \E i \in ByzR : 
         \/ \E m \in PrepareMessages : 
@@ -339,7 +337,7 @@ InjectBackupMessage ==
             /\ msgs' = [msgs EXCEPT !.reply = @ \cup {m}]
     /\ UNCHANGED <<mlogs, views>>
 
-
+\* Extends Next to allow Byzantine backups to inject messages
 NextByz ==
     \/ Next
     \/ InjectBackupMessage

@@ -23,3 +23,17 @@ jobs:
       - name: Typecheck
         run: |
           ./apalache/bin/apalache-mc typecheck --features=no-rows pbft.tla
+  tlc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install TLA+ Tools
+        run: |
+          git clone https://github.com/pmer/tla-bin.git
+          cd tla-bin
+          ./download_or_update_tla.sh
+          sudo ./install.sh
+      - name: Sany
+        run: sany *.tla
+      - name: Random exploration with TLC
+        run: tlc -workers auto -simulate num=100 pbft.tla
