@@ -14,4 +14,8 @@ MC_ByzR == {"R2"}
 
 MC_PRIMARY == "R0"
 
+MC_Tstamps == 1..2
+
+MC_Views == {0}
+
 ====

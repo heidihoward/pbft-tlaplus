@@ -8,7 +8,6 @@ EXTENDS Integers, FiniteSets, TLC
 
 \* This iteration of the specification is significantly simplified from the original paper.
 \* We make the following simplifying assumptions:
-\* - Always 4 nodes
 \* - no view changes, 1 fixed primary (node R1) 
 \* - no byzantine primaries
 \* - no liveness properties
@@ -32,6 +31,7 @@ ASSUME N = 3*F + 1
 CONSTANT 
 \* @type: Str;
     PRIMARY
+
 ASSUME PRIMARY \in R
 
 \* Don't include the primary in the symmetry set
@@ -41,11 +41,12 @@ Symmetry == Permutations(R \ {PRIMARY})
 CONSTANT
 \* @type: Set(Str);    
     ByzR
+
 ASSUME ByzR \subseteq R
 
 \* Set of all request timestamps
 \* We use just natural numbers as there's a single client
-Tstamps == 1..2
+Tstamps == Nat
 
 \* Bounding sequence numbers to the total number of requests
 SeqNums == Tstamps
@@ -53,7 +54,7 @@ SeqNums == Tstamps
 \* Our dummy app will return the request sequence number
 Results == SeqNums
 
-Views == {0}
+Views == Nat
 
 \* Digest takes a client request and returns a unique identifier
 \* Since we are assuming timestamps are unique, we can use them as the digest
