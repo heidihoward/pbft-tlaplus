@@ -1,2 +1,2 @@
-# pbft-tlaplus
+# PBFT TLA+
 Formal specification of PBFT in TLA+
