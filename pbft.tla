@@ -18,12 +18,7 @@ EXTENDS Integers, FiniteSets, TLC
 
 \* Set of replicas
 \* Castro & Liskov 4 "We denote the set of replicas by R and identify each replica using an integer in {0,..|R|-1}."
-\* Representing replicas as constants instead of integers allows us to use symmetry sets when checking safety properties with TLC
-\* CONSTANT R0, R1, R2, R3
-\* R == {R0, R1, R2, R3}
-
-\* Switch replicas to strings for easy Apalache compatibility
-R == {"R0", "R1", "R2", "R3"}
+CONSTANT R
 
 N == Cardinality(R)
 F == (N - 1) \div 3
@@ -32,12 +27,14 @@ F == (N - 1) \div 3
 ASSUME N = 3*F + 1
 
 \* A fixed primary
-PRIMARY == "R0"
+CONSTANT PRIMARY
+ASSUME PRIMARY \in R
+
 \* Don't include the primary in the symmetry set
 Symmetry == Permutations(R \ {PRIMARY})
 
 \* Byzantine replicas (backups only)
-ByzR == {"R2"}
+CONSTANT ByzR
 ASSUME ByzR \subseteq R
 
 \* Set of all request timestamps
@@ -337,7 +334,7 @@ InjectBackupMessage ==
             /\ msgs' = [msgs EXCEPT !.reply = @ \cup {m}]
     /\ UNCHANGED <<mlogs, views>>
 
-\* Extends Next to allow Byzantine backups to inject messages
+\* Extends Next to allow 
 NextByz ==
     \/ Next
     \/ InjectBackupMessage
