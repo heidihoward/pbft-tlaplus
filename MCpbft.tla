@@ -9,9 +9,7 @@ EXTENDS pbft
 \* Switch replicas to strings for easy Apalache compatibility
 
 MC_R == {"R0", "R1", "R2", "R3"}
-
 MC_ByzR == {"R2"}
-
 MC_PRIMARY == "R0"
 
 MC_Tstamps == 1..2
