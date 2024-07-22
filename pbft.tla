@@ -18,7 +18,9 @@ EXTENDS Integers, FiniteSets, TLC
 
 \* Set of replicas
 \* Castro & Liskov 4 "We denote the set of replicas by R and identify each replica using an integer in {0,..|R|-1}."
-CONSTANT R
+CONSTANT 
+\* @type: Set(Str)    
+    R
 
 N == Cardinality(R)
 F == (N - 1) \div 3
@@ -27,14 +29,18 @@ F == (N - 1) \div 3
 ASSUME N = 3*F + 1
 
 \* A fixed primary
-CONSTANT PRIMARY
+CONSTANT 
+\* @type: Str
+    PRIMARY
 ASSUME PRIMARY \in R
 
 \* Don't include the primary in the symmetry set
 Symmetry == Permutations(R \ {PRIMARY})
 
 \* Byzantine replicas (backups only)
-CONSTANT ByzR
+CONSTANT
+\* @type: Set(Str)    
+    ByzR
 ASSUME ByzR \subseteq R
 
 \* Set of all request timestamps
