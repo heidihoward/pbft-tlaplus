@@ -44,8 +44,8 @@ Tstamps == Nat
 SeqNums == Tstamps
 
 \* Set of services states
-\* We use the sequence number of the next request as the service state
-States == SeqNums
+\* We use the sequence number of the last request as the service state
+States == SeqNums \union {0}
 
 \* Set of results that clients can receive
 \* Our dummy app will return the request sequence number
@@ -116,7 +116,7 @@ VARIABLE
     views
 
 \* Service state
-\* For this dummy app logic, the service state is simply the sequence number of the next request
+\* For this dummy app logic, the service state is simply the sequence number of the last request
 VARIABLE 
 \* @type: Int -> Int;
     states
@@ -152,7 +152,7 @@ Init ==
         reply |-> {}]
         ]
     /\ views = [r \in R |-> 0]
-    /\ states = [r \in R |-> 1]
+    /\ states = [r \in R |-> 0]
 
 \* Castro & Liskov 4.2 "In the pre-prepare phase, the primary assigns a sequence number, n, to the request, multicasts a preprepare message with m piggybacked to all the backups, and appends the message to its log. The message has the form ((PRE-PREPARE,v,n,d),m), where v indicates the view in which the message is being sent, m is the client's request message, and d is m's digest."
 \* Note that we have extended the preprepare message to include the primary's identity. This is not described in the paper as sender identity is implicit in the message signature, however, since we do not model signatures we must represent the sender explicitly. 
@@ -281,13 +281,13 @@ Reply(i) ==
     /\ \E m \in mlogs[i].request : 
             \E n \in SeqNums, v \in Views :
                 /\ CommittedLocal(m,v,n,i)
-                /\ states[i] = n
+                /\ states[i] = n - 1
                 /\ msgs' = [msgs EXCEPT !.reply = @ \cup {[
                     v |-> v,
                     t |-> m.t, 
                     i |-> i, 
                     r |-> n]}]
-                /\ states' = [states EXCEPT ![i] = n + 1]
+                /\ states' = [states EXCEPT ![i] = n]
     /\ UNCHANGED <<mlogs, views>>
 
 Next ==
