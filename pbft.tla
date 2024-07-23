@@ -16,7 +16,7 @@ EXTENDS Integers, FiniteSets, TLC
 \* Set of replicas
 \* Castro & Liskov 4 "We denote the set of replicas by R and identify each replica using an integer in {0,..|R|-1}."
 CONSTANT 
-\* @type: Set(Str);
+\* @type: Set(Int);
     R
 
 N == Cardinality(R)
@@ -25,22 +25,15 @@ F == (N - 1) \div 3
 \* Castro & Liskov 4 "For simplicity, we assume N=3F+1 where F is the maximum number of replicas that may be faulty."
 ASSUME N = 3*F + 1
 
-\* A fixed primary
-CONSTANT 
-\* @type: Str;
-    PRIMARY
-
-ASSUME PRIMARY \in R
-
 \* Don't include the primary in the symmetry set
-Symmetry == Permutations(R \ {PRIMARY})
+Symmetry == Permutations(R)
 
 \* Byzantine replicas (backups only)
 CONSTANT
-\* @type: Set(Str);    
+\* @type: Set(Int);    
     ByzR
 
-ASSUME ByzR \subseteq (R \ {PRIMARY})
+ASSUME ByzR \subseteq R
 
 \* Set of request timestamps
 \* We use just natural numbers as there's a single client
@@ -49,6 +42,10 @@ Tstamps == Nat
 \* Set of sequence numbers
 \* Bounding sequence numbers to the total number of requests
 SeqNums == Tstamps
+
+\* Set of services states
+\* We use the sequence number of the next request as the service state
+States == SeqNums
 
 \* Set of results that clients can receive
 \* Our dummy app will return the request sequence number
@@ -73,10 +70,10 @@ RequestMessages ==
 \* We distinguish between two types of preprepare message, those with a piggybacked client request and those without
 
 PrePrepareWithRequestMessages == 
-    [v: Views, n : SeqNums, d : Digests, m : RequestMessages]
+    [v: Views, p : R, n : SeqNums, d : Digests, m : RequestMessages]
 
 PrePrepareMessages == 
-    [v: Views, n : SeqNums, d : Digests]
+    [v: Views, p : R, n : SeqNums, d : Digests]
 
 PrepareMessages == 
     [v : Views, i : R, n : SeqNums, d : Digests]
@@ -105,25 +102,33 @@ LoggedMessages == [
 \* Note that messages are never removed from msgs
 \* All messages are modelled as multicasted to all replicas
 VARIABLE
-\* @type: [ request : Set ([ t : Int ]), preprepare : Set ([ v : Int, n : Int, d : Int,  m : [ t : Int ] ]), prepare : Set ([ v : Int, i : Str, n : Int, d : Int ]), commit : Set ([ v : Int, i : Str, n : Int, d : Int ]), reply : Set ([ v : Int, i : Str, t : Int, r : Int ]) ];
+\* @type: [ request : Set ([ t : Int ]), preprepare : Set ([ v : Int, p : Int, n : Int, d : Int,  m : [ t : Int ] ]), prepare : Set ([ v : Int, i : Int, n : Int, d : Int ]), commit : Set ([ v : Int, i : Int, n : Int, d : Int ]), reply : Set ([ v : Int, i : Int, t : Int, r : Int ]) ];
     msgs
 
 \* Messages each replica has accepted
 VARIABLE 
-\* @type: Str -> [ request : Set ([ t : Int ]), preprepare : Set ([ v : Int, n : Int, d : Int,  m : [ t : Int ] ]), prepare : Set ([ v : Int, i : Str, n : Int, d : Int ]), commit : Set ([ v : Int, i : Str, n : Int, d : Int ]), reply : Set ([ v : Int, i : Str, t : Int, r : Int ]) ];
+\* @type: Int -> [ request : Set ([ t : Int ]), preprepare : Set ([ v : Int, p : Int, n : Int, d : Int,  m : [ t : Int ] ]), prepare : Set ([ v : Int, i : Int, n : Int, d : Int ]), commit : Set ([ v : Int, i : Int, n : Int, d : Int ]), reply : Set ([ v : Int, i : Int, t : Int, r : Int ]) ];
     mlogs
 
 \* Replica views
 VARIABLE
-\* @type: Str -> Int;
+\* @type: Int -> Int;
     views
+
+\* Service state
+\* For this dummy app logic, the service state is simply the sequence number of the next request
+VARIABLE 
+\* @type: Int -> Int;
+    states
+
 
 TypeOK ==
     /\ msgs \in Messages
     /\ mlogs \in [R -> LoggedMessages]
     /\ views \in [R -> Views]
+    /\ states \in [R -> States]
 
-vars == <<msgs, mlogs, views>>
+vars == <<msgs, mlogs, views, states>>
 
 ----
 \* Normal case operation of PBFT
@@ -147,31 +152,35 @@ Init ==
         reply |-> {}]
         ]
     /\ views = [r \in R |-> 0]
+    /\ states = [r \in R |-> 1]
 
 \* Castro & Liskov 4.2 "In the pre-prepare phase, the primary assigns a sequence number, n, to the request, multicasts a preprepare message with m piggybacked to all the backups, and appends the message to its log. The message has the form ((PRE-PREPARE,v,n,d),m), where v indicates the view in which the message is being sent, m is the client's request message, and d is m's digest."
+\* Note that we have extended the preprepare message to include the primary's identity. This is not described in the paper as sender identity is implicit in the message signature, however, since we do not model signatures we must represent the sender explicitly. 
 
 \* @type: Set(Int) => Int;
 Max0(S) == CHOOSE x \in (S \union {0}) : \A y \in S : x >= y
 
-\* @type: Str => Int;
+\* @type: Int => Int;
 NextN(i) == Max0({m.n: m \in mlogs[i].preprepare}) + 1
 
 PrePrepare(i) ==
-    /\ i = PRIMARY
+    /\ i = views[i] % N
     /\ \E m \in (msgs.request \ mlogs[i].request) : 
         /\ msgs' = [msgs EXCEPT 
             !.preprepare = @ \cup {[
                 v |-> views[i],
+                p |-> i,
                 n |-> NextN(i), 
                 d |-> Digest(m), 
                 m |-> m]}]
         /\ mlogs' = [mlogs EXCEPT 
             ![i].preprepare = @ \cup {[
                 v |-> views[i],
+                p |-> i,
                 n |-> NextN(i), 
                 d |-> Digest(m)]},
             ![i].request = @ \cup {m}]
-        /\ UNCHANGED views
+        /\ UNCHANGED <<views, states>>
 
 
 \* Castro & Liskov 4.2 "A backup accepts a pre-prepare message provided: 1) the signatures in the request and the pre-prepare message are correct and d is the digest for m; 2) it is in view v; 3) it has not accepted a pre-prepare message for view v and sequence number n containing a different digest; 4) the sequence number in the pre-prepare message is between a low water mark, h , and a high water mark, H. If backup accepts the ((PRE-PREPARE,v,n,d),m) message, it enters the prepare phase by multicasting a (PREPARE,v,n,d,i) message to all other replicas and adds both messages to its log. Otherwise, it does nothing."
@@ -179,13 +188,15 @@ PrePrepare(i) ==
 \* @type: [ n : Int, d : Int,  m : [ t : Int ] ] => [ n : Int, d : Int ];
 Strip(m) == [
     v |-> m.v,
+    p |-> m.p,
     n |-> m.n, 
     d |-> m.d]
 
 Prepare(i) ==
-    /\ i /= PRIMARY
+    /\ i /= views[i] % N
     /\ \E m \in msgs.preprepare: 
         /\ m.d = Digest(m.m)
+        /\ m.p = m.v % N
         /\ m.v = views[i]
         /\ \A mpp \in mlogs[i].preprepare : 
             /\ mpp.v = m.v
@@ -205,7 +216,7 @@ Prepare(i) ==
                 n |-> m.n, 
                 i |-> i, 
                 d |-> m.d]}]
-    /\ UNCHANGED views
+    /\ UNCHANGED <<views, states>>
 
 \* Castro & Liskov 4.2 "A replica (including the primary) accepts prepare messages and adds them to its log provided their signatures are correct, their view number equals the replica’s current view, and their sequence number is between h and H."
 
@@ -213,7 +224,7 @@ AcceptPrepare(i) ==
     /\ \E m \in msgs.prepare :
         /\ m.v = views[i]
         /\ mlogs' = [mlogs EXCEPT ![i].prepare = @ \cup {m}]
-    /\ UNCHANGED <<msgs, views>>
+    /\ UNCHANGED <<msgs, views, states>>
 
 \* Castro & Liskov 4.2 "We define the predicate prepared(m,v,n,i) to be true if and only if replica i has inserted in its log: the request m, a pre-prepare for m in view v with sequence number n, and 2f prepares from different backups that match the pre-prepare. The replicas verify whether the prepares match the pre-prepare by checking that they have the same view, sequence number, and digest."
 
@@ -245,7 +256,7 @@ Commit(i) ==
                         n |-> n, 
                         i |-> i, 
                         d |-> Digest(m)]}]
-    /\ UNCHANGED views
+    /\ UNCHANGED <<views, states>>
 
 \* Castro & Liskov 4.2 "Replicas accept commit messages and insert them in their log provided they are properly signed, the view number in the message is equal to the replica's current view, and the sequence number is between h and H."
 
@@ -253,7 +264,7 @@ AcceptCommit(i) ==
     /\ \E m \in msgs.commit:
         /\ m.v = views[i]
         /\ mlogs' = [mlogs EXCEPT ![i].commit = @ \cup {m}]
-    /\ UNCHANGED <<msgs, views>>
+    /\ UNCHANGED <<msgs, views, states>>
 
 \* Castro & Liskov 4.2 "committed-local(m,v,n,i) is true if and only if prepared(m,v,n,i) is true and i has accepted 2f+1 commits (possibly including its own) from different replicas that match the pre-prepare for m; a commit matches a pre-prepare if they have the same view, sequence number, and digest."
 
@@ -270,11 +281,13 @@ Reply(i) ==
     /\ \E m \in mlogs[i].request : 
             \E n \in SeqNums, v \in Views :
                 /\ CommittedLocal(m,v,n,i)
+                /\ states[i] = n
                 /\ msgs' = [msgs EXCEPT !.reply = @ \cup {[
                     v |-> v,
                     t |-> m.t, 
                     i |-> i, 
                     r |-> n]}]
+                /\ states' = [states EXCEPT ![i] = n + 1]
     /\ UNCHANGED <<mlogs, views>>
 
 Next ==
@@ -346,7 +359,7 @@ InjectBackupMessage ==
         \/ \E m \in ReplyMessages :
             /\ m.i = i
             /\ msgs' = [msgs EXCEPT !.reply = @ \cup {m}]
-    /\ UNCHANGED <<mlogs, views>>
+    /\ UNCHANGED <<mlogs, views, states>>
 
 \* Extends Next to allow 
 NextByz ==
