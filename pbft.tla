@@ -1,11 +1,7 @@
 ---- MODULE pbft ----
 \* This TLA+ specification describes the normal case operation of Practical Byzantine Fault Tolerance protocol.
 \* See https://www.pmg.csail.mit.edu/papers/osdi99.pdf for a full description of the protocol.
-
 \* This specification can be checked with TLC and Apalache (https://apalache.informal.systems/). Note that typechecking with Apalache requires the --features=no-rows flag.
-
-EXTENDS Integers, FiniteSets, TLC
-
 \* This iteration of the specification is significantly simplified from the original paper.
 \* We make the following simplifying assumptions:
 \* - no view changes, 1 fixed primary (node R1) 
@@ -14,6 +10,8 @@ EXTENDS Integers, FiniteSets, TLC
 \* - dummy requests
 \* - one client with concurrent requests
 \* - no garbage collection/checkpointing (Sec. 4.3)
+
+EXTENDS Integers, FiniteSets, TLC
 
 \* Set of replicas
 \* Castro & Liskov 4 "We denote the set of replicas by R and identify each replica using an integer in {0,..|R|-1}."
@@ -42,18 +40,21 @@ CONSTANT
 \* @type: Set(Str);    
     ByzR
 
-ASSUME ByzR \subseteq R
+ASSUME ByzR \subseteq (R \ {PRIMARY})
 
-\* Set of all request timestamps
+\* Set of request timestamps
 \* We use just natural numbers as there's a single client
 Tstamps == Nat
 
+\* Set of sequence numbers
 \* Bounding sequence numbers to the total number of requests
 SeqNums == Tstamps
 
+\* Set of results that clients can receive
 \* Our dummy app will return the request sequence number
 Results == SeqNums
 
+\* Set of possible views
 Views == Nat
 
 \* Digest takes a client request and returns a unique identifier
@@ -61,10 +62,15 @@ Views == Nat
 \* @type: [ t : Int ] => Int;
 Digest(m) == m.t
 
+\* Set of possible request digests
 Digests == Tstamps
+
+\* The following definitions describe all possible messages
 
 RequestMessages == 
     [t : Tstamps]
+
+\* We distinguish between two types of preprepare message, those with a piggybacked client request and those without
 
 PrePrepareWithRequestMessages == 
     [v: Views, n : SeqNums, d : Digests, m : RequestMessages]
@@ -95,7 +101,9 @@ LoggedMessages == [
     commit : SUBSET CommitMessages,
     reply : SUBSET ReplyMessages]
 
-\* Set of messages ever sent
+\* Set of all messages ever sent
+\* Note that messages are never removed from msgs
+\* All messages are modelled as multicasted to all replicas
 VARIABLE
 \* @type: [ request : Set ([ t : Int ]), preprepare : Set ([ v : Int, n : Int, d : Int,  m : [ t : Int ] ]), prepare : Set ([ v : Int, i : Str, n : Int, d : Int ]), commit : Set ([ v : Int, i : Str, n : Int, d : Int ]), reply : Set ([ v : Int, i : Str, t : Int, r : Int ]) ];
     msgs
@@ -260,14 +268,13 @@ CommittedLocal(m,v,n,i) ==
 \* We use dummy requests so the result is simply the request sequence number
 Reply(i) ==
     /\ \E m \in mlogs[i].request : 
-            \E n \in SeqNums :
-                \E v \in Views :
-                    /\ CommittedLocal(m,v,n,i)
-                    /\ msgs' = [msgs EXCEPT !.reply = @ \cup {[
-                        v |-> v,
-                        t |-> m.t, 
-                        i |-> i, 
-                        r |-> n]}]
+            \E n \in SeqNums, v \in Views :
+                /\ CommittedLocal(m,v,n,i)
+                /\ msgs' = [msgs EXCEPT !.reply = @ \cup {[
+                    v |-> v,
+                    t |-> m.t, 
+                    i |-> i, 
+                    r |-> n]}]
     /\ UNCHANGED <<mlogs, views>>
 
 Next ==
