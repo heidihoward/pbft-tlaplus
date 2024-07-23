@@ -43,6 +43,13 @@ Tstamps == Nat
 \* Bounding sequence numbers to the total number of requests
 SeqNums == Tstamps
 
+\* Sequence numbers to checkpoint at. An empty set means checkpointing is disabled
+CONSTANT 
+    \* @type: Set(Int);  
+    Checkpoints 
+
+ASSUME Checkpoints \subseteq SeqNums
+
 \* Set of services states
 \* We use the sequence number of the last request as the service state
 States == SeqNums \union {0}
@@ -54,13 +61,21 @@ Results == SeqNums
 \* Set of possible views
 Views == Nat
 
-\* Digest takes a client request and returns a unique identifier
+\* RequestDigest takes a client request and returns a unique identifier
 \* Since we are assuming timestamps are unique, we can use them as the digest
 \* @type: [ t : Int ] => Int;
-Digest(m) == m.t
+RequestDigest(m) == m.t
 
 \* Set of possible request digests
-Digests == Tstamps
+RequestDigests == Tstamps
+
+\* StateDigest takes a replica state and returns a unique identifier
+\* Currently, we are just using the state itself as the digest
+\* @type: [ t : Int ] => Int;
+StateDigest(s) == s
+
+\* Set of possible state digests
+StateDigests == States
 
 \* The following definitions describe all possible messages
 
@@ -70,33 +85,38 @@ RequestMessages ==
 \* We distinguish between two types of preprepare message, those with a piggybacked client request and those without
 
 PrePrepareWithRequestMessages == 
-    [v: Views, p : R, n : SeqNums, d : Digests, m : RequestMessages]
+    [v: Views, p : R, n : SeqNums, d : RequestDigests, m : RequestMessages]
 
 PrePrepareMessages == 
-    [v: Views, p : R, n : SeqNums, d : Digests]
+    [v: Views, p : R, n : SeqNums, d : RequestDigests]
 
 PrepareMessages == 
-    [v : Views, i : R, n : SeqNums, d : Digests]
+    [v : Views, i : R, n : SeqNums, d : RequestDigests]
 
 CommitMessages ==
-    [v : Views, i : R, n : SeqNums, d : Digests]
+    [v : Views, i : R, n : SeqNums, d : RequestDigests]
 
 ReplyMessages ==
     [v : Views, i : R, t : Tstamps, r: Results]
+
+CheckpointMessages ==
+    [n : SeqNums, d : StateDigests, i : R]
 
 Messages == [ 
     request : SUBSET RequestMessages, 
     preprepare : SUBSET PrePrepareWithRequestMessages,
     prepare : SUBSET PrepareMessages,
     commit : SUBSET CommitMessages,
-    reply : SUBSET ReplyMessages]
+    reply : SUBSET ReplyMessages,
+    checkpoint : SUBSET CheckpointMessages]
 
 LoggedMessages == [
     request : SUBSET RequestMessages, 
     preprepare : SUBSET PrePrepareMessages,
     prepare : SUBSET PrepareMessages,
     commit : SUBSET CommitMessages,
-    reply : SUBSET ReplyMessages]
+    reply : SUBSET ReplyMessages,
+    checkpoint : SUBSET CheckpointMessages]
 
 \* Set of all messages ever sent
 \* Note that messages are never removed from msgs
@@ -143,13 +163,15 @@ Init ==
         preprepare |-> {},
         prepare |-> {},
         commit |-> {},
-        reply |-> {}]
+        reply |-> {},
+        checkpoint |-> {}]
     /\ mlogs = [r \in R |-> [
         request |-> {},
         preprepare |-> {},
         prepare |-> {},
         commit |-> {},
-        reply |-> {}]
+        reply |-> {},
+        checkpoint |-> {}]
         ]
     /\ views = [r \in R |-> 0]
     /\ states = [r \in R |-> 0]
@@ -171,14 +193,14 @@ PrePrepare(i) ==
                 v |-> views[i],
                 p |-> i,
                 n |-> NextN(i), 
-                d |-> Digest(m), 
+                d |-> RequestDigest(m), 
                 m |-> m]}]
         /\ mlogs' = [mlogs EXCEPT 
             ![i].preprepare = @ \cup {[
                 v |-> views[i],
                 p |-> i,
                 n |-> NextN(i), 
-                d |-> Digest(m)]},
+                d |-> RequestDigest(m)]},
             ![i].request = @ \cup {m}]
         /\ UNCHANGED <<views, states>>
 
@@ -195,7 +217,7 @@ Strip(m) == [
 Prepare(i) ==
     /\ i /= views[i] % N
     /\ \E m \in msgs.preprepare: 
-        /\ m.d = Digest(m.m)
+        /\ m.d = RequestDigest(m.m)
         /\ m.p = m.v % N
         /\ m.v = views[i]
         /\ \A mpp \in mlogs[i].preprepare : 
@@ -232,10 +254,10 @@ Prepared(m,v,n,i) ==
     /\ m \in mlogs[i].request
     /\ \E ppm \in mlogs[i].preprepare:
         /\ ppm.v = v
-        /\ ppm.d = Digest(m)
+        /\ ppm.d = RequestDigest(m)
         /\ ppm.n = n
     /\ Cardinality({pm \in mlogs[i].prepare: 
-        pm.v = v /\ pm.d = Digest(m) /\ pm.n = n}) >= 2*F
+        pm.v = v /\ pm.d = RequestDigest(m) /\ pm.n = n}) >= 2*F
 
 \* Castro & Liskov 4.2 "Replica multicasts a (COMMIT, v, n, D(m), i) to the other replicas when prepared becomes true. This starts the commit phase."
 
@@ -249,13 +271,13 @@ Commit(i) ==
                         v |-> v,
                         n |-> n, 
                         i |-> i, 
-                        d |-> Digest(m)]}]
+                        d |-> RequestDigest(m)]}]
                 /\ mlogs' = [mlogs EXCEPT 
                     ![i].commit = @ \cup {[
                         v |-> v,
                         n |-> n, 
                         i |-> i, 
-                        d |-> Digest(m)]}]
+                        d |-> RequestDigest(m)]}]
     /\ UNCHANGED <<views, states>>
 
 \* Castro & Liskov 4.2 "Replicas accept commit messages and insert them in their log provided they are properly signed, the view number in the message is equal to the replica's current view, and the sequence number is between h and H."
@@ -271,24 +293,69 @@ AcceptCommit(i) ==
 CommittedLocal(m,v,n,i) ==
     /\ Prepared(m,v,n,i)
     /\ Cardinality({cm \in mlogs[i].commit: 
-        cm.v = v /\ cm.d = Digest(m) /\ cm.n = n}) >= 2*F + 1 
+        cm.v = v /\ cm.d = RequestDigest(m) /\ cm.n = n}) >= 2*F + 1 
 
 \* Castro & Liskov 4.2 "Each replica i executes the operation requested by m after committed-local(m,v,n,i) is true and i’s state reflects the sequential execution of all requests with lower sequence numbers. This ensures that all non-faulty replicas execute requests in the same order as required to provide the safety property. After executing the requested operation, replicas send a reply to the client."
 \* Castro & Liskov 4.1 "A replica sends the reply to the request directly to the client. The reply has the form (REPLY,v,t,c,i,r) where v is the current view number, t is the timestamp of the corresponding request, i is the replica number, and r is the result of executing the requested operation."
 
 \* We use dummy requests so the result is simply the request sequence number
-Reply(i) ==
+ExecuteNoCheckpoint(i) ==
     /\ \E m \in mlogs[i].request : 
-            \E n \in SeqNums, v \in Views :
-                /\ CommittedLocal(m,v,n,i)
-                /\ states[i] = n - 1
-                /\ msgs' = [msgs EXCEPT !.reply = @ \cup {[
+        \E n \in SeqNums, v \in Views :
+            /\ CommittedLocal(m,v,n,i)
+            /\ states[i] = n - 1
+            /\ n \notin Checkpoints
+            /\ msgs' = [msgs EXCEPT !.reply = @ \cup {[
+                v |-> v,
+                t |-> m.t, 
+                i |-> i, 
+                r |-> n]}]
+            /\ states' = [states EXCEPT ![i] = n]
+    /\ UNCHANGED <<mlogs, views>>
+
+\* Castro & Liskov 4.3 "When a replica i produces a checkpoint, it multicasts a message (CHECKPOINT,n,d,i) to the other replicas, where n is the sequence number of the last request whose execution is reflected in the state and d is the digest of the state.
+
+ExecuteAndCheckpoint(i) ==
+    /\ \E m \in mlogs[i].request : 
+        \E n \in SeqNums, v \in Views :
+            /\ CommittedLocal(m,v,n,i)
+            /\ states[i] = n - 1
+            /\ n \in Checkpoints
+            /\ msgs' = [msgs EXCEPT 
+                !.reply = @ \cup {[
                     v |-> v,
                     t |-> m.t, 
                     i |-> i, 
-                    r |-> n]}]
-                /\ states' = [states EXCEPT ![i] = n]
-    /\ UNCHANGED <<mlogs, views>>
+                    r |-> n]}, 
+                !.checkpoint = @ \cup {[
+                    n |-> n,
+                    d |-> StateDigest(n),
+                    i |-> i]}]
+            /\ mlogs' = [mlogs EXCEPT ![i].checkpoint = @ \cup {[
+                n |-> n,
+                d |-> StateDigest(n),
+                i |-> i]}]
+            /\ states' = [states EXCEPT ![i] = n]
+    /\ UNCHANGED <<views>>
+
+UnstableCheckpoint(i) ==
+    /\ \E m \in msgs.checkpoint : 
+        /\ Cardinality({mc \in mlogs[i].checkpoint : 
+            mc.n = m.n /\ mc.d = m.d} \union {m}) < 2*F + 1
+        /\ mlogs' = [mlogs EXCEPT 
+            ![i].checkpoint = @ \cup {m}]
+    /\ UNCHANGED <<msgs, views, states>>
+
+StableCheckpoint(i) ==
+    /\ \E m \in msgs.checkpoint : 
+        /\ Cardinality({mc \in mlogs[i].checkpoint : 
+            mc.n = m.n /\ mc.d = m.d} \union {m}) \geq 2*F + 1
+        /\ mlogs' = [mlogs EXCEPT 
+            ![i].preprepare = {mpp \in @ : mpp.n > m.n},
+            ![i].prepare = {mp \in @ : mp.n > m.n},
+            ![i].commit = {mc \in @ : mc.n > m.n},
+            ![i].checkpoint = {mc \in @ : mc.n >= m.n} \cup {m}]
+    /\ UNCHANGED <<msgs, views, states>>
 
 Next ==
     \/ \E i \in R : 
@@ -297,7 +364,10 @@ Next ==
         \/ AcceptPrepare(i)
         \/ Commit(i)
         \/ AcceptCommit(i)
-        \/ Reply(i)
+        \/ ExecuteNoCheckpoint(i)
+        \/ ExecuteAndCheckpoint(i)
+        \/ UnstableCheckpoint(i)
+        \/ StableCheckpoint(i)
 
 Spec == Init /\ [][Next]_vars
 
@@ -342,29 +412,58 @@ SpecInv == Inv /\ [][Next]_vars
 DecidedDebugInv == ~Decided(1,1)
 
 AnyRepliesDebugInv ==
-    msgs.preprepare # {}
+    msgs.reply # {}
 
 ----
 \* A variant of spec for modeling byzantine behavior
 
-\* Any message sent by a Byzantine backup can be injected into the system
-InjectBackupMessage ==
-    /\ \E i \in ByzR : 
-        \/ \E m \in PrepareMessages : 
-            /\ m.i = i
-            /\ msgs' = [msgs EXCEPT !.prepare = @ \cup {m}]
-        \/ \E m \in CommitMessages :
-            /\ m.i = i
-            /\ msgs' = [msgs EXCEPT !.commit = @ \cup {m}]
-        \/ \E m \in ReplyMessages :
-            /\ m.i = i
-            /\ msgs' = [msgs EXCEPT !.reply = @ \cup {m}]
+InjectPreprepare(i) ==
+    /\ \E m \in PrePrepareWithRequestMessages : 
+        /\ m.p = i
+        \* A byzantine replica can produce messages with invalid digests but we do not model that here to reduce state space as replicas will reject such messages
+        /\ m.d = RequestDigest(m.m)
+        \* Similarly, we do not model non-primary replicas sending preprepares
+        /\ m.p = m.v % N
+        /\ msgs' = [msgs EXCEPT !.preprepare = @ \cup {m}]
     /\ UNCHANGED <<mlogs, views, states>>
+
+InjectPrepare(i) ==
+    /\ \E m \in PrepareMessages : 
+        /\ m.i = i
+        /\ msgs' = [msgs EXCEPT !.prepare = @ \cup {m}]
+    /\ UNCHANGED <<mlogs, views, states>>
+
+InjectCommit(i) ==
+    /\ \E m \in CommitMessages : 
+        /\ m.i = i
+        /\ msgs' = [msgs EXCEPT !.commit = @ \cup {m}]
+    /\ UNCHANGED <<mlogs, views, states>>
+
+InjectReply(i) ==
+    /\ \E m \in ReplyMessages : 
+        /\ m.i = i
+        /\ msgs' = [msgs EXCEPT !.reply = @ \cup {m}]
+    /\ UNCHANGED <<mlogs, views, states>>
+
+InjectCheckpoint(i) ==
+    /\ \E m \in CheckpointMessages : 
+        /\ m.i = i
+        /\ msgs' = [msgs EXCEPT !.checkpoint = @ \cup {m}]
+    /\ UNCHANGED <<mlogs, views, states>> 
+
+\* Any message sent by a Byzantine replica can be injected into the system
+InjectMessage ==
+    \E i \in ByzR : 
+        \/ InjectPreprepare(i)
+        \/ InjectPrepare(i)
+        \/ InjectCommit(i)
+        \/ InjectReply(i)
+        \/ InjectCheckpoint(i)
 
 \* Extends Next to allow 
 NextByz ==
     \/ Next
-    \/ InjectBackupMessage
+    \/ InjectMessage
 
 SpecByz == Init /\ [][NextByz]_vars
 

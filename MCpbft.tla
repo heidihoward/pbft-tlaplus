@@ -9,10 +9,12 @@ EXTENDS pbft
 \* Switch replicas to strings for easy Apalache compatibility
 
 MC_R == 0..3
-MC_ByzR == {2}
+MC_ByzR == {0}
 
-MC_Tstamps == 1..2
+MC_Tstamps == 1..4
 
 MC_Views == {0}
+
+MC_Checkpoints == {2}
 
 ====
