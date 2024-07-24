@@ -71,7 +71,7 @@ RequestDigests == Tstamps
 
 \* StateDigest takes a replica state and returns a unique identifier
 \* Currently, we are just using the state itself as the digest
-\* @type: [ t : Int ] => Int;
+\* @type: Int => Int;
 StateDigest(s) == s
 
 \* Set of possible state digests
@@ -122,12 +122,12 @@ LoggedMessages == [
 \* Note that messages are never removed from msgs
 \* All messages are modelled as multicasted to all replicas
 VARIABLE
-\* @type: [ request : Set ([ t : Int ]), preprepare : Set ([ v : Int, p : Int, n : Int, d : Int,  m : [ t : Int ] ]), prepare : Set ([ v : Int, i : Int, n : Int, d : Int ]), commit : Set ([ v : Int, i : Int, n : Int, d : Int ]), reply : Set ([ v : Int, i : Int, t : Int, r : Int ]) ];
+\* @type: [ request : Set ([ t : Int ]), preprepare : Set ([ v : Int, p : Int, n : Int, d : Int,  m : [ t : Int ] ]), prepare : Set ([ v : Int, i : Int, n : Int, d : Int ]), commit : Set ([ v : Int, i : Int, n : Int, d : Int ]), reply : Set ([ v : Int, i : Int, t : Int, r : Int ]), checkpoint : Set ([ n : Int, d : Int, i : Int ]) ];
     msgs
 
 \* Messages each replica has accepted
 VARIABLE 
-\* @type: Int -> [ request : Set ([ t : Int ]), preprepare : Set ([ v : Int, p : Int, n : Int, d : Int,  m : [ t : Int ] ]), prepare : Set ([ v : Int, i : Int, n : Int, d : Int ]), commit : Set ([ v : Int, i : Int, n : Int, d : Int ]), reply : Set ([ v : Int, i : Int, t : Int, r : Int ]) ];
+\* @type: Int -> [ request : Set ([ t : Int ]), preprepare : Set ([ v : Int, p : Int, n : Int, d : Int,  m : [ t : Int ] ]), prepare : Set ([ v : Int, i : Int, n : Int, d : Int ]), commit : Set ([ v : Int, i : Int, n : Int, d : Int ]), reply : Set ([ v : Int, i : Int, t : Int, r : Int ]), checkpoint : Set ([ n : Int, d : Int, i : Int ]) ];
     mlogs
 
 \* Replica views
@@ -144,7 +144,7 @@ VARIABLE
 \* Last stable checkpoint
 \* Initially empty, sCheckpoint is 2f+1 checkpoint messages with the same digest and sequence number
 VARIABLE
-\* @type: Int -> Set(CheckpointMessages)
+\* @type: Int -> Set ([ n : Int, d : Int, i : Int ]);
     sCheckpoint
 
 TypeOK ==
@@ -220,6 +220,8 @@ Strip(m) == [
     p |-> m.p,
     n |-> m.n, 
     d |-> m.d]
+
+\* Castro & Liskov 4.3 "The low-water mark h is equal to the sequence number of the last stable checkpoint. The high water mark H = h + k, where k is big enough so that replicas do not stall waiting for a checkpoint to become stable. For example, if checkpoints are taken every 100 requests, might be 200."
 
 h(i) == 
     IF sCheckpoint[i] = {} 
