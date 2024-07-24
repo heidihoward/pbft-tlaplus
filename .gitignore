@@ -1,3 +1,6 @@
+## TLA tools
+states/
+
 ## Core latex/pdflatex auxiliary files:
 *.aux
 *.lof

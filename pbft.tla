@@ -141,14 +141,20 @@ VARIABLE
 \* @type: Int -> Int;
     states
 
+\* Last stable checkpoint
+\* Initially empty, sCheckpoint is 2f+1 checkpoint messages with the same digest and sequence number
+VARIABLE
+\* @type: Int -> Set(CheckpointMessages)
+    sCheckpoint
 
 TypeOK ==
     /\ msgs \in Messages
     /\ mlogs \in [R -> LoggedMessages]
     /\ views \in [R -> Views]
     /\ states \in [R -> States]
+    /\ sCheckpoint \in [R -> SUBSET CheckpointMessages]
 
-vars == <<msgs, mlogs, views, states>>
+vars == <<msgs, mlogs, views, states, sCheckpoint>>
 
 ----
 \* Normal case operation of PBFT
@@ -175,6 +181,7 @@ Init ==
         ]
     /\ views = [r \in R |-> 0]
     /\ states = [r \in R |-> 0]
+    /\ sCheckpoint = [r \in R |-> {}]
 
 \* Castro & Liskov 4.2 "In the pre-prepare phase, the primary assigns a sequence number, n, to the request, multicasts a preprepare message with m piggybacked to all the backups, and appends the message to its log. The message has the form ((PRE-PREPARE,v,n,d),m), where v indicates the view in which the message is being sent, m is the client's request message, and d is m's digest."
 \* Note that we have extended the preprepare message to include the primary's identity. This is not described in the paper as sender identity is implicit in the message signature, however, since we do not model signatures we must represent the sender explicitly. 
@@ -202,7 +209,7 @@ PrePrepare(i) ==
                 n |-> NextN(i), 
                 d |-> RequestDigest(m)]},
             ![i].request = @ \cup {m}]
-        /\ UNCHANGED <<views, states>>
+        /\ UNCHANGED <<views, states, sCheckpoint>>
 
 
 \* Castro & Liskov 4.2 "A backup accepts a pre-prepare message provided: 1) the signatures in the request and the pre-prepare message are correct and d is the digest for m; 2) it is in view v; 3) it has not accepted a pre-prepare message for view v and sequence number n containing a different digest; 4) the sequence number in the pre-prepare message is between a low water mark, h , and a high water mark, H. If backup accepts the ((PRE-PREPARE,v,n,d),m) message, it enters the prepare phase by multicasting a (PREPARE,v,n,d,i) message to all other replicas and adds both messages to its log. Otherwise, it does nothing."
@@ -214,12 +221,22 @@ Strip(m) == [
     n |-> m.n, 
     d |-> m.d]
 
+h(i) == 
+    IF sCheckpoint[i] = {} 
+    THEN 0 
+    ELSE (CHOOSE m \in sCheckpoint[i] : TRUE).n
+
+\* Watermark window size
+k == 10
+
 Prepare(i) ==
     /\ i /= views[i] % N
     /\ \E m \in msgs.preprepare: 
         /\ m.d = RequestDigest(m.m)
         /\ m.p = m.v % N
         /\ m.v = views[i]
+        /\ m.n > h(i)
+        /\ m.n <= h(i) + k
         /\ \A mpp \in mlogs[i].preprepare : 
             /\ mpp.v = m.v
             /\ mpp.n = m.n
@@ -238,15 +255,17 @@ Prepare(i) ==
                 n |-> m.n, 
                 i |-> i, 
                 d |-> m.d]}]
-    /\ UNCHANGED <<views, states>>
+    /\ UNCHANGED <<views, states, sCheckpoint>>
 
 \* Castro & Liskov 4.2 "A replica (including the primary) accepts prepare messages and adds them to its log provided their signatures are correct, their view number equals the replica’s current view, and their sequence number is between h and H."
 
 AcceptPrepare(i) ==
     /\ \E m \in msgs.prepare :
         /\ m.v = views[i]
+        /\ m.n > h(i)
+        /\ m.n <= h(i) + k
         /\ mlogs' = [mlogs EXCEPT ![i].prepare = @ \cup {m}]
-    /\ UNCHANGED <<msgs, views, states>>
+    /\ UNCHANGED <<msgs, views, states, sCheckpoint>>
 
 \* Castro & Liskov 4.2 "We define the predicate prepared(m,v,n,i) to be true if and only if replica i has inserted in its log: the request m, a pre-prepare for m in view v with sequence number n, and 2f prepares from different backups that match the pre-prepare. The replicas verify whether the prepares match the pre-prepare by checking that they have the same view, sequence number, and digest."
 
@@ -278,7 +297,7 @@ Commit(i) ==
                         n |-> n, 
                         i |-> i, 
                         d |-> RequestDigest(m)]}]
-    /\ UNCHANGED <<views, states>>
+    /\ UNCHANGED <<views, states, sCheckpoint>>
 
 \* Castro & Liskov 4.2 "Replicas accept commit messages and insert them in their log provided they are properly signed, the view number in the message is equal to the replica's current view, and the sequence number is between h and H."
 
@@ -286,7 +305,7 @@ AcceptCommit(i) ==
     /\ \E m \in msgs.commit:
         /\ m.v = views[i]
         /\ mlogs' = [mlogs EXCEPT ![i].commit = @ \cup {m}]
-    /\ UNCHANGED <<msgs, views, states>>
+    /\ UNCHANGED <<msgs, views, states, sCheckpoint>>
 
 \* Castro & Liskov 4.2 "committed-local(m,v,n,i) is true if and only if prepared(m,v,n,i) is true and i has accepted 2f+1 commits (possibly including its own) from different replicas that match the pre-prepare for m; a commit matches a pre-prepare if they have the same view, sequence number, and digest."
 
@@ -311,10 +330,12 @@ ExecuteNoCheckpoint(i) ==
                 i |-> i, 
                 r |-> n]}]
             /\ states' = [states EXCEPT ![i] = n]
-    /\ UNCHANGED <<mlogs, views>>
+    /\ UNCHANGED <<mlogs, views, sCheckpoint>>
 
 \* Castro & Liskov 4.3 "When a replica i produces a checkpoint, it multicasts a message (CHECKPOINT,n,d,i) to the other replicas, where n is the sequence number of the last request whose execution is reflected in the state and d is the digest of the state.
 
+\* This action is the same as ExecuteNoCheckpoint but includes sending a checkpoint message.
+\* Either ExecuteNoCheckpoint or ExecuteAndCheckpoint will be enabled at point in time, not both.
 ExecuteAndCheckpoint(i) ==
     /\ \E m \in mlogs[i].request : 
         \E n \in SeqNums, v \in Views :
@@ -336,7 +357,7 @@ ExecuteAndCheckpoint(i) ==
                 d |-> StateDigest(n),
                 i |-> i]}]
             /\ states' = [states EXCEPT ![i] = n]
-    /\ UNCHANGED <<views>>
+    /\ UNCHANGED <<views, sCheckpoint>>
 
 UnstableCheckpoint(i) ==
     /\ \E m \in msgs.checkpoint : 
@@ -344,17 +365,20 @@ UnstableCheckpoint(i) ==
             mc.n = m.n /\ mc.d = m.d} \union {m}) < 2*F + 1
         /\ mlogs' = [mlogs EXCEPT 
             ![i].checkpoint = @ \cup {m}]
-    /\ UNCHANGED <<msgs, views, states>>
+    /\ UNCHANGED <<msgs, views, states, sCheckpoint>>
+
+\* Castro & Liskov 4.3 "Each replica collects checkpoint messages in its log until it has 2f+1 of them for sequence number n with the same digest d signed by different replicas (including possibly its own such message). These 2f+1 messages are the proof of correctness for the checkpoint."
 
 StableCheckpoint(i) ==
     /\ \E m \in msgs.checkpoint : 
         /\ Cardinality({mc \in mlogs[i].checkpoint : 
-            mc.n = m.n /\ mc.d = m.d} \union {m}) \geq 2*F + 1
+            mc.n = m.n /\ mc.d = m.d} \union {m}) = 2*F + 1
         /\ mlogs' = [mlogs EXCEPT 
             ![i].preprepare = {mpp \in @ : mpp.n > m.n},
             ![i].prepare = {mp \in @ : mp.n > m.n},
             ![i].commit = {mc \in @ : mc.n > m.n},
-            ![i].checkpoint = {mc \in @ : mc.n >= m.n} \cup {m}]
+            ![i].checkpoint = {mc \in @ : mc.n > m.n}]
+        /\ sCheckpoint' = [sCheckpoint EXCEPT ![i] = {mc \in mlogs[i].checkpoint : mc.n = m.n /\ mc.d = m.d} \union {m}]
     /\ UNCHANGED <<msgs, views, states>>
 
 Next ==
@@ -390,6 +414,7 @@ OneResultInv ==
 SafetyInv == OneReplyInv /\ OneResultInv
 
 \*  Castro & Liskov 4.2 "committed(m,v,n) is true if and only if prepared(m,v,n,i) is true for all i in some set of f+1 non-faulty replicas"
+
 Committed(m,v,n) ==
     Cardinality({i \in (R \ ByzR) : Prepared(m,v,n,i)}) >= F+1
 
@@ -398,21 +423,29 @@ Committed(m,v,n) ==
 CommittedInv ==
     \A m \in RequestMessages, v \in Views, n \in SeqNums, i \in (R \ ByzR): CommittedLocal(m,v,n,i) => Committed(m,v,n)
 
-
+\* This is the beginning of a inductive invariant for Safety. However, the state space is too large to use this as an initial state with TLC or Apalache.
 Inv == 
     /\ TypeOK
     /\ SafetyInv
-    /\ Init
 
 SpecInv == Inv /\ [][Next]_vars
 
 ----
 \* Invariants for debugging, add to cfg to enable
 
-DecidedDebugInv == ~Decided(1,1)
+DecidedTstamps == {t \in Tstamps: \E r \in Results: Decided(t,r)}
+
+AtLeastOneDecidedDebugInv == DecidedTstamps = {}
+
+AtLeastTwoDecidedDebugInv == Cardinality(DecidedTstamps) < 2
+
+AllDecidedDebugInv == DecidedTstamps /= Tstamps
 
 AnyRepliesDebugInv ==
     msgs.reply # {}
+
+NoCheckpointsDebugInv ==
+    msgs.checkpoint = {}
 
 ----
 \* A variant of spec for modeling byzantine behavior
