@@ -13,7 +13,7 @@ MC_ByzR == {}
 
 MC_Tstamps == 1..3
 
-MC_Views == {0}
+MC_Views == 0..2
 
 MC_Checkpoints == {}
 

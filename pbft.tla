@@ -102,13 +102,25 @@ ReplyMessages ==
 CheckpointMessages ==
     [n : SeqNums, d : StateDigests, i : R]
 
+PrepareProof == [
+    preprepare : PrePrepareMessages,
+    prepare : SUBSET PrepareMessages]
+
+ViewChangeMessages == [
+    v : Views, 
+    n : SeqNums \union {0}, 
+    c : SUBSET CheckpointMessages, 
+    p : SUBSET PrepareProof, 
+    i : R]
+
 Messages == [ 
     request : SUBSET RequestMessages, 
     preprepare : SUBSET PrePrepareWithRequestMessages,
     prepare : SUBSET PrepareMessages,
     commit : SUBSET CommitMessages,
     reply : SUBSET ReplyMessages,
-    checkpoint : SUBSET CheckpointMessages]
+    checkpoint : SUBSET CheckpointMessages,
+    viewchange : SUBSET ViewChangeMessages]
 
 LoggedMessages == [
     request : SUBSET RequestMessages, 
@@ -116,7 +128,8 @@ LoggedMessages == [
     prepare : SUBSET PrepareMessages,
     commit : SUBSET CommitMessages,
     reply : SUBSET ReplyMessages,
-    checkpoint : SUBSET CheckpointMessages]
+    checkpoint : SUBSET CheckpointMessages,
+    viewchange : SUBSET ViewChangeMessages]
 
 \* Set of all messages ever sent
 \* Note that messages are never removed from msgs
@@ -177,14 +190,16 @@ Init ==
         prepare |-> {},
         commit |-> {},
         reply |-> {},
-        checkpoint |-> {}]
+        checkpoint |-> {},
+        viewchange |-> {}]
     /\ mlogs = [r \in R |-> [
         request |-> {},
         preprepare |-> {},
         prepare |-> {},
         commit |-> {},
         reply |-> {},
-        checkpoint |-> {}]
+        checkpoint |-> {},
+        viewchange |-> {}]
         ]
     /\ views = [r \in R |-> 0]
     /\ states = [r \in R |-> 0]
@@ -231,16 +246,16 @@ Strip(m) == [
 
 \* Castro & Liskov 4.3 "The low-water mark h is equal to the sequence number of the last stable checkpoint. The high water mark H = h + k, where k is big enough so that replicas do not stall waiting for a checkpoint to become stable. For example, if checkpoints are taken every 100 requests, might be 200."
 
-h(i) == 
-    IF sCheckpoint[i] = {} 
-    THEN 0 
-    ELSE (CHOOSE m \in sCheckpoint[i] : TRUE).n
+\* We are using Max here but all the n's in sCheckpoint[i] are the same.
+\* Alternatively, we could have used CHOOSE.
+h(i) == Max0({m.n: m \in sCheckpoint[i]})
 
 \* Watermark window size
 k == 10
 
 Prepare(i) ==
     /\ i /= views[i] % N
+    /\ ~vChange[i]
     /\ \E m \in msgs.preprepare: 
         /\ m.d = RequestDigest(m.m)
         /\ m.p = m.v % N
@@ -270,6 +285,7 @@ Prepare(i) ==
 \* Castro & Liskov 4.2 "A replica (including the primary) accepts prepare messages and adds them to its log provided their signatures are correct, their view number equals the replica’s current view, and their sequence number is between h and H."
 
 AcceptPrepare(i) ==
+    /\ ~vChange[i]
     /\ \E m \in msgs.prepare :
         /\ m.v = views[i]
         /\ m.n > h(i)
@@ -291,6 +307,7 @@ Prepared(m,v,n,i) ==
 \* Castro & Liskov 4.2 "Replica multicasts a (COMMIT, v, n, D(m), i) to the other replicas when prepared becomes true. This starts the commit phase."
 
 Commit(i) ==
+    /\ ~vChange[i]
     /\ \E m \in mlogs[i].request : 
         \E n \in SeqNums :
             \E v \in Views : 
@@ -312,6 +329,7 @@ Commit(i) ==
 \* Castro & Liskov 4.2 "Replicas accept commit messages and insert them in their log provided they are properly signed, the view number in the message is equal to the replica's current view, and the sequence number is between h and H."
 
 AcceptCommit(i) ==
+    /\ ~vChange[i]
     /\ \E m \in msgs.commit:
         /\ m.v = views[i]
         /\ mlogs' = [mlogs EXCEPT ![i].commit = @ \cup {m}]
@@ -329,6 +347,7 @@ CommittedLocal(m,v,n,i) ==
 
 \* We use dummy requests so the result is simply the request sequence number
 ExecuteNoCheckpoint(i) ==
+    /\ ~vChange[i]
     /\ \E m \in mlogs[i].request : 
         \E n \in SeqNums, v \in Views :
             /\ CommittedLocal(m,v,n,i)
@@ -347,6 +366,7 @@ ExecuteNoCheckpoint(i) ==
 \* This action is the same as ExecuteNoCheckpoint but includes sending a checkpoint message.
 \* Either ExecuteNoCheckpoint or ExecuteAndCheckpoint will be enabled at point in time, not both.
 ExecuteAndCheckpoint(i) ==
+    /\ ~vChange[i]
     /\ \E m \in mlogs[i].request : 
         \E n \in SeqNums, v \in Views :
             /\ CommittedLocal(m,v,n,i)
@@ -391,6 +411,37 @@ StableCheckpoint(i) ==
         /\ sCheckpoint' = [sCheckpoint EXCEPT ![i] = {mc \in mlogs[i].checkpoint : mc.n = m.n /\ mc.d = m.d} \union {m}]
     /\ UNCHANGED <<msgs, views, states, vChange>>
 
+\* Castro & Liskov 4.4 "If the timer of backup i expires in view v, the backup starts a view change to move the system to view v+1. It stops accepting messages (other than checkpoint, view-change, and new-view messages) and multicasts a (VIEW-CHANGE,v+1,n,C,P,i) message to all replicas. Here n is the sequence number of the last stable checkpoint s known to i, C is a set of 2f+1 valid checkpoint messages proving the correctness of s, and P is a set containing a set P_m for each request m that prepared at i with a sequence number higher than n. Each set P_m contains a valid pre-prepare message (without the corresponding client message) and 2f matching, valid prepare messages signed by different backups with the same view, sequence number, and the digest of m.
+
+\* \* Set of requests prepared at replica i with sequence number higher than n
+\* PreparedAfterN(i,n) == 
+\*     {<<m, v, nm>> \in (mlogs[i].request \S Views \S SeqNums) 
+\*         : nm > n /\ Prepared(m,v,nm,i)}
+
+
+\* Pm(m, i) ==
+\*     {ppm \in mlogs[i].preprepare: 
+\*         ppm.d = RequestDigest(m)} \union 
+\*     \* TODO: this is not guaranteed to contain exactly 2f matching prepare messages, there might be more
+\*     {pm \in mlogs[i].prepare:
+\*         pm.d = RequestDigest(m)}
+
+\* Pm(m, v, n, i) : m, v, n \in PreparedAfterN(i, n)
+        
+ViewChange(i) ==
+    /\ i /= views[i] % N
+    \* TODO: Move this to MC
+    /\ views[i] \in Views
+    /\ vChange' = [vChange EXCEPT ![i] = TRUE]
+    /\ msgs' = [msgs EXCEPT 
+        !.viewchange = @ \cup {[
+            v |-> views[i] + 1,
+            n |-> Max0({m.n: m \in sCheckpoint[i]}),
+            c |-> sCheckpoint[i],
+            p |-> {},
+            i |-> i]}]
+    /\ UNCHANGED <<mlogs, views, states, sCheckpoint>>
+
 Next ==
     \/ \E i \in R : 
         \/ PrePrepare(i)
@@ -402,6 +453,7 @@ Next ==
         \/ ExecuteAndCheckpoint(i)
         \/ UnstableCheckpoint(i)
         \/ StableCheckpoint(i)
+        \/ ViewChange(i)
 
 Spec == Init /\ [][Next]_vars
 
