@@ -134,13 +134,24 @@ LoggedMessages == [
 \* Set of all messages ever sent
 \* Note that messages are never removed from msgs
 \* All messages are modelled as multicasted to all replicas
+
+\* @typeAlias: requestMsgs = [ t : Int ];
+\* @typeAlias: preprepareMsgsWithRequest = [ v : Int, p : Int, n : Int, d : Int,  m : [ t : Int ] ];
+\* @typeAlias: preprepareMsgs = [ v : Int, p : Int, n : Int, d : Int];
+\* @typeAlias: prepareMsgs = [ v : Int, i : Int, n : Int, d : Int ];
+\* @typeAlias: commitMsgs = [ v : Int, i : Int, n : Int, d : Int ];
+\* @typeAlias: replyMsgs = [ v : Int, i : Int, t : Int, r : Int ];
+\* @typeAlias: checkpointMsgs = [ n : Int, d : Int, i : Int ];
+\* @typeAlias: viewchangeMsgs = [ v : Int, n : Int, c : Set ([ n : Int, d : Int, i : Int ]), p : Set ([ preprepare : $preprepareMsgs, prepare : Set ($prepareMsgs) ]), i : Int ];
+pbft_typedefs == TRUE
+
 VARIABLE
-\* @type: [ request : Set ([ t : Int ]), preprepare : Set ([ v : Int, p : Int, n : Int, d : Int,  m : [ t : Int ] ]), prepare : Set ([ v : Int, i : Int, n : Int, d : Int ]), commit : Set ([ v : Int, i : Int, n : Int, d : Int ]), reply : Set ([ v : Int, i : Int, t : Int, r : Int ]), checkpoint : Set ([ n : Int, d : Int, i : Int ]), viewchange : Set ([ v : Int, n : Int, c : Set ([ n : Int, d : Int, i : Int ]), p : Set ([ preprepare : [ v : Int, p : Int, n : Int, d : Int ], prepare : Set ([ v : Int, i : Int, n : Int, d : Int ]) ]), i : Int ])] ;
+\* @type: [ request : Set ($requestMsgs), preprepare : Set ($preprepareMsgsWithRequest), prepare : Set ($prepareMsgs), commit : Set ($commitMsgs), reply : Set ($replyMsgs), checkpoint : Set ($checkpointMsgs), viewchange : Set ($viewchangeMsgs) ] ;
     msgs
 
 \* Messages each replica has accepted
 VARIABLE 
-\* @type: Int -> [ request : Set ([ t : Int ]), preprepare : Set ([ v : Int, p : Int, n : Int, d : Int,  m : [ t : Int ] ]), prepare : Set ([ v : Int, i : Int, n : Int, d : Int ]), commit : Set ([ v : Int, i : Int, n : Int, d : Int ]), reply : Set ([ v : Int, i : Int, t : Int, r : Int ]), checkpoint : Set ([ n : Int, d : Int, i : Int ]) ];
+\* @type: Int -> [ request : Set ($requestMsgs), preprepare : Set ($preprepareMsgs), prepare : Set ($prepareMsgs), commit : Set ($commitMsgs), reply : Set ($replyMsgs), checkpoint : Set ($checkpointMsgs), viewchange : Set ($viewchangeMsgs) ] ;
     mlogs
 
 \* Replica views
@@ -157,7 +168,7 @@ VARIABLE
 \* Last stable checkpoint
 \* Initially empty, sCheckpoint is 2f+1 checkpoint messages with the same digest and sequence number
 VARIABLE
-\* @type: Int -> Set ([ n : Int, d : Int, i : Int ]);
+\* @type: Int -> Set ($checkpointMsgs);
     sCheckpoint
 
 \* Flag to indicate if a view change is in progress
@@ -237,7 +248,7 @@ PrePrepare(i) ==
 
 \* Castro & Liskov 4.2 "A backup accepts a pre-prepare message provided: 1) the signatures in the request and the pre-prepare message are correct and d is the digest for m; 2) it is in view v; 3) it has not accepted a pre-prepare message for view v and sequence number n containing a different digest; 4) the sequence number in the pre-prepare message is between a low water mark, h , and a high water mark, H. If backup accepts the ((PRE-PREPARE,v,n,d),m) message, it enters the prepare phase by multicasting a (PREPARE,v,n,d,i) message to all other replicas and adds both messages to its log. Otherwise, it does nothing."
 
-\* @type: [ n : Int, d : Int,  m : [ t : Int ] ] => [ n : Int, d : Int ];
+\* @type: $preprepareMsgsWithRequest => $preprepareMsgs;
 Strip(m) == [
     v |-> m.v,
     p |-> m.p,
@@ -443,7 +454,7 @@ ViewChange(i) ==
     /\ UNCHANGED <<mlogs, views, states, sCheckpoint>>
 
 Next ==
-    \/ \E i \in R : 
+    \E i \in R : 
         \/ PrePrepare(i)
         \/ Prepare(i)
         \/ AcceptPrepare(i)
@@ -496,31 +507,31 @@ InjectPreprepare(i) ==
         \* Similarly, we do not model non-primary replicas sending preprepares
         /\ m.p = m.v % N
         /\ msgs' = [msgs EXCEPT !.preprepare = @ \cup {m}]
-    /\ UNCHANGED <<mlogs, views, states>>
+    /\ UNCHANGED <<mlogs, views, states, sCheckpoint, vChange>>
 
 InjectPrepare(i) ==
     /\ \E m \in PrepareMessages : 
         /\ m.i = i
         /\ msgs' = [msgs EXCEPT !.prepare = @ \cup {m}]
-    /\ UNCHANGED <<mlogs, views, states>>
+    /\ UNCHANGED <<mlogs, views, states, sCheckpoint, vChange>>
 
 InjectCommit(i) ==
     /\ \E m \in CommitMessages : 
         /\ m.i = i
         /\ msgs' = [msgs EXCEPT !.commit = @ \cup {m}]
-    /\ UNCHANGED <<mlogs, views, states>>
+    /\ UNCHANGED <<mlogs, views, states, sCheckpoint, vChange>>
 
 InjectReply(i) ==
     /\ \E m \in ReplyMessages : 
         /\ m.i = i
         /\ msgs' = [msgs EXCEPT !.reply = @ \cup {m}]
-    /\ UNCHANGED <<mlogs, views, states>>
+    /\ UNCHANGED <<mlogs, views, states, sCheckpoint, vChange>>
 
 InjectCheckpoint(i) ==
     /\ \E m \in CheckpointMessages : 
         /\ m.i = i
         /\ msgs' = [msgs EXCEPT !.checkpoint = @ \cup {m}]
-    /\ UNCHANGED <<mlogs, views, states>> 
+    /\ UNCHANGED <<mlogs, views, states, sCheckpoint, vChange>> 
 
 \* Any message sent by a Byzantine replica can be injected into the system
 InjectMessage ==
