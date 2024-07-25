@@ -135,7 +135,7 @@ LoggedMessages == [
 \* Note that messages are never removed from msgs
 \* All messages are modelled as multicasted to all replicas
 VARIABLE
-\* @type: [ request : Set ([ t : Int ]), preprepare : Set ([ v : Int, p : Int, n : Int, d : Int,  m : [ t : Int ] ]), prepare : Set ([ v : Int, i : Int, n : Int, d : Int ]), commit : Set ([ v : Int, i : Int, n : Int, d : Int ]), reply : Set ([ v : Int, i : Int, t : Int, r : Int ]), checkpoint : Set ([ n : Int, d : Int, i : Int ]) ];
+\* @type: [ request : Set ([ t : Int ]), preprepare : Set ([ v : Int, p : Int, n : Int, d : Int,  m : [ t : Int ] ]), prepare : Set ([ v : Int, i : Int, n : Int, d : Int ]), commit : Set ([ v : Int, i : Int, n : Int, d : Int ]), reply : Set ([ v : Int, i : Int, t : Int, r : Int ]), checkpoint : Set ([ n : Int, d : Int, i : Int ]), viewchange : Set ([ v : Int, n : Int, c : Set ([ n : Int, d : Int, i : Int ]), p : Set ([ preprepare : [ v : Int, p : Int, n : Int, d : Int ], prepare : Set ([ v : Int, i : Int, n : Int, d : Int ]) ]), i : Int ])] ;
     msgs
 
 \* Messages each replica has accepted
@@ -163,7 +163,7 @@ VARIABLE
 \* Flag to indicate if a view change is in progress
 \* Whilst a view change is in progress, the replica will not accept any messages (other than checkpoint, view-change, and new-view messages).
 VARIABLE
-\* @type: Int -> BOOLEAN;
+\* @type: Int -> Bool;
     vChange
 
 TypeOK ==
