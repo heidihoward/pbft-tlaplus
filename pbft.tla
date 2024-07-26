@@ -84,23 +84,41 @@ RequestMessages ==
 
 \* We distinguish between two types of preprepare message, those with a piggybacked client request and those without
 
-PrePrepareWithRequestMessages == 
-    [v: Views, p : R, n : SeqNums, d : RequestDigests, m : RequestMessages]
+PrePrepareWithRequestMessages == [
+    v: Views, 
+    p : R, 
+    n : SeqNums, 
+    d : RequestDigests, 
+    m : RequestMessages]
 
-PrePrepareMessages == 
-    [v: Views, p : R, n : SeqNums, d : RequestDigests]
+PrePrepareMessages == [
+    v: Views, 
+    p : R, 
+    n : SeqNums, 
+    d : RequestDigests]
 
-PrepareMessages == 
-    [v : Views, i : R, n : SeqNums, d : RequestDigests]
+PrepareMessages == [
+    v : Views, 
+    i : R, 
+    n : SeqNums, 
+    d : RequestDigests]
 
-CommitMessages ==
-    [v : Views, i : R, n : SeqNums, d : RequestDigests]
+CommitMessages ==[
+    v : Views, 
+    i : R, 
+    n : SeqNums, 
+    d : RequestDigests]
 
-ReplyMessages ==
-    [v : Views, i : R, t : Tstamps, r: Results]
+ReplyMessages ==[
+    v : Views, 
+    i : R, 
+    t : Tstamps, 
+    r: Results]
 
-CheckpointMessages ==
-    [n : SeqNums, d : StateDigests, i : R]
+CheckpointMessages ==[
+    n : SeqNums, 
+    d : StateDigests, 
+    i : R]
 
 PrepareProof == [
     preprepare : PrePrepareMessages,
@@ -113,6 +131,12 @@ ViewChangeMessages == [
     p : SUBSET PrepareProof, 
     i : R]
 
+NewViewMessages == [
+    v : Views,
+    vc : SUBSET ViewChangeMessages,
+    o : SUBSET PrePrepareMessages,
+    p : R]
+
 Messages == [ 
     request : SUBSET RequestMessages, 
     preprepare : SUBSET PrePrepareWithRequestMessages,
@@ -120,7 +144,8 @@ Messages == [
     commit : SUBSET CommitMessages,
     reply : SUBSET ReplyMessages,
     checkpoint : SUBSET CheckpointMessages,
-    viewchange : SUBSET ViewChangeMessages]
+    viewchange : SUBSET ViewChangeMessages,
+    newview : SUBSET NewViewMessages]
 
 LoggedMessages == [
     request : SUBSET RequestMessages, 
@@ -143,10 +168,11 @@ LoggedMessages == [
 \* @typeAlias: replyMsgs = [ v : Int, i : Int, t : Int, r : Int ];
 \* @typeAlias: checkpointMsgs = [ n : Int, d : Int, i : Int ];
 \* @typeAlias: viewchangeMsgs = [ v : Int, n : Int, c : Set ([ n : Int, d : Int, i : Int ]), p : Set ([ preprepare : $preprepareMsgs, prepare : Set ($prepareMsgs) ]), i : Int ];
+\* @typeAlias: newviewMsgs = [ v : Int, vc : Set ($viewchangeMsgs), o : Set ($preprepareMsgs), p : Int ];
 pbft_typedefs == TRUE
 
 VARIABLE
-\* @type: [ request : Set ($requestMsgs), preprepare : Set ($preprepareMsgsWithRequest), prepare : Set ($prepareMsgs), commit : Set ($commitMsgs), reply : Set ($replyMsgs), checkpoint : Set ($checkpointMsgs), viewchange : Set ($viewchangeMsgs) ] ;
+\* @type: [ request : Set ($requestMsgs), preprepare : Set ($preprepareMsgsWithRequest), prepare : Set ($prepareMsgs), commit : Set ($commitMsgs), reply : Set ($replyMsgs), checkpoint : Set ($checkpointMsgs), viewchange : Set ($viewchangeMsgs), newview : Set ($newviewMsgs) ] ;
     msgs
 
 \* Messages each replica has accepted
@@ -202,7 +228,8 @@ Init ==
         commit |-> {},
         reply |-> {},
         checkpoint |-> {},
-        viewchange |-> {}]
+        viewchange |-> {},
+        newview |-> {}]
     /\ mlogs = [r \in R |-> [
         request |-> {},
         preprepare |-> {},
@@ -228,6 +255,8 @@ NextN(i) == Max0({m.n: m \in mlogs[i].preprepare}) + 1
 
 PrePrepare(i) ==
     /\ i = views[i] % N
+    \* TODO: move to MC file
+    /\ NextN(i) \in SeqNums
     /\ \E m \in (msgs.request \ mlogs[i].request) : 
         /\ msgs' = [msgs EXCEPT 
             !.preprepare = @ \cup {[
@@ -424,34 +453,94 @@ StableCheckpoint(i) ==
 
 \* Castro & Liskov 4.4 "If the timer of backup i expires in view v, the backup starts a view change to move the system to view v+1. It stops accepting messages (other than checkpoint, view-change, and new-view messages) and multicasts a (VIEW-CHANGE,v+1,n,C,P,i) message to all replicas. Here n is the sequence number of the last stable checkpoint s known to i, C is a set of 2f+1 valid checkpoint messages proving the correctness of s, and P is a set containing a set P_m for each request m that prepared at i with a sequence number higher than n. Each set P_m contains a valid pre-prepare message (without the corresponding client message) and 2f matching, valid prepare messages signed by different backups with the same view, sequence number, and the digest of m.
 
-\* \* Set of requests prepared at replica i with sequence number higher than n
-\* PreparedAfterN(i,n) == 
-\*     {<<m, v, nm>> \in (mlogs[i].request \S Views \S SeqNums) 
-\*         : nm > n /\ Prepared(m,v,nm,i)}
+\* Set of requests with views and sequence numbers prepared at replica i with sequence numbers higher than n
+PreparedAfterN(i,n) == 
+    {<<m, v, nm>> \in (mlogs[i].request \X Views \X SeqNums) 
+        : nm > n /\ Prepared(m,v,nm,i)}
 
+\* Produce a proof that a request m was prepared at replica i with sequence number n and view v
+Pm(m, v, n, i) == [
+    preprepare |-> CHOOSE ppm \in mlogs[i].preprepare: 
+        ppm.v = v /\ ppm.n = n /\ ppm.d = RequestDigest(m),
+    \* TODO: this is not guaranteed to contain exactly 2f matching prepare messages, there might be more
+    prepare |-> {pm \in mlogs[i].prepare:
+        pm.v = v /\ pm.n = n /\ pm.d = RequestDigest(m)}]
 
-\* Pm(m, i) ==
-\*     {ppm \in mlogs[i].preprepare: 
-\*         ppm.d = RequestDigest(m)} \union 
-\*     \* TODO: this is not guaranteed to contain exactly 2f matching prepare messages, there might be more
-\*     {pm \in mlogs[i].prepare:
-\*         pm.d = RequestDigest(m)}
+GenerateViewChangeMsg(i) ==
+    LET n == Max0({m.n: m \in sCheckpoint[i]}) 
+    IN [v |-> views[i] + 1,
+        n |-> n,
+        c |-> sCheckpoint[i],
+        p |-> {Pm(m, v, nm, i) : <<m, v, nm>> \in PreparedAfterN(i, n)},
+        i |-> i]
 
-\* Pm(m, v, n, i) : m, v, n \in PreparedAfterN(i, n)
-        
+\* This specification does not model timers, so view changes are always enabled for all backups.      
 ViewChange(i) ==
     /\ i /= views[i] % N
     \* TODO: Move this to MC
     /\ views[i] \in Views
     /\ vChange' = [vChange EXCEPT ![i] = TRUE]
     /\ msgs' = [msgs EXCEPT 
-        !.viewchange = @ \cup {[
-            v |-> views[i] + 1,
-            n |-> Max0({m.n: m \in sCheckpoint[i]}),
-            c |-> sCheckpoint[i],
-            p |-> {},
-            i |-> i]}]
+        !.viewchange = @ \cup {GenerateViewChangeMsg(i)}]
     /\ UNCHANGED <<mlogs, views, states, sCheckpoint>>
+
+\* True iff cp is a valid checkpoint proof for sequence number n.
+ValidCheckpointProof(cp, n) ==
+    \/ /\ n = 0
+       /\ cp = {}
+    \/ /\ n /= 0
+       /\ Cardinality(cp) = 2*F + 1
+       /\ \E d \in StateDigests: 
+            \A m \in cp:
+                /\ m.n = n
+                /\ m.d = StateDigest(n)
+
+\* True iff pp is a valid prepare proof for a sequence number after n_min.
+ValidPrepareProof(pp, n_min) ==
+    \E v \in Views, n \in SeqNums, d \in RequestDigests:
+        /\ n > n_min
+        /\ pp.preprepare.v = v
+        /\ pp.preprepare.p = v % N
+        /\ pp.preprepare.n = n
+        /\ pp.preprepare.d = d
+        /\ Cardinality(pp.prepare) = 2*F
+        /\ \A ppm \in pp.prepare:
+            /\ ppm.v = v
+            /\ ppm.n = n
+            /\ ppm.d = d
+
+\* The next primary accepts valid view-changes messages. The seperate NewView action is used to act on them.
+AcceptViewChange(i) ==
+    \* check that replica i will be next primary
+    /\ i = (views[i] + 1) % N
+    /\ \E m \in msgs.viewchange : 
+        /\ m.v = views[i] + 1
+        /\ ValidCheckpointProof(m.c, m.n)
+        /\ \A pp \in m.p: ValidPrepareProof(pp, m.n)
+        /\ mlogs' = [mlogs EXCEPT ![i].viewchange = @ \cup {m}]
+    /\ UNCHANGED <<msgs, views, states, sCheckpoint, vChange>>
+
+\* Castro & Liskov 4.4 "When the primary p of view v+1 receives 2f valid view-change messages for view v+1 from other replicas, it multicasts a (NEW-VIEW,v+1,V,O) message to all other replicas, where V is a set containing the valid view-change messages received by the primary plus the view-change message for v+1 the primary sent (or would have sent), and is a set of pre-prepare messages (without the piggybacked request)." 
+
+NewView(i) ==
+    \* check that replica i will be next primary
+    /\ i = (views[i] + 1) % N
+    \* check for 2f view-change messages
+    \* we need not confirm that the view-change messages are valid as this is done in AcceptViewChange
+    /\ Cardinality({m \in mlogs[i].viewchange : m.v = views[i] + 1}) = 2*F
+    \* TODO calc O
+    /\ msgs' = [msgs EXCEPT !.newview = @ \cup {[
+        v |-> views[i] + 1,
+        vc |-> {m \in mlogs[i].viewchange : m.v = views[i] + 1} \cup {GenerateViewChangeMsg(i)},
+        o |-> {},
+        p |-> i]}]
+    /\ views' = [views EXCEPT ![i] = views[i] + 1]
+    /\ vChange' = [vChange EXCEPT ![i] = FALSE]
+    /\ UNCHANGED <<mlogs, states, sCheckpoint>>
+
+AcceptNewView(i) ==
+    \* TODO
+    UNCHANGED <<msgs, mlogs, views, states, sCheckpoint, vChange>>
 
 Next ==
     \E i \in R : 
@@ -465,6 +554,9 @@ Next ==
         \/ UnstableCheckpoint(i)
         \/ StableCheckpoint(i)
         \/ ViewChange(i)
+        \/ AcceptViewChange(i)
+        \/ NewView(i)
+        \/ AcceptNewView(i)
 
 Spec == Init /\ [][Next]_vars
 
