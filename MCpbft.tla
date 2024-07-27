@@ -20,4 +20,12 @@ MC_Views == 0..2
 \* @type: Set(Int);
 MC_Checkpoints == {}
 
+----
+
+PBFT == INSTANCE pbft
+
+MCViewChange(i) ==
+    /\ views[i] + 1 \in Views
+    /\ PBFT!ViewChange(i)
+
 ====

@@ -490,8 +490,6 @@ GenerateViewChangeMsg(i) ==
 \* This specification does not model timers, so view changes are always enabled for all backups.      
 ViewChange(i) ==
     /\ i /= views[i] % N
-    \* TODO: Move this to MC
-    /\ views[i] + 1 \in Views
     /\ vChange' = [vChange EXCEPT ![i] = TRUE]
     /\ msgs' = [msgs EXCEPT 
         !.viewchange = @ \cup {GenerateViewChangeMsg(i)}]
