@@ -491,7 +491,7 @@ GenerateViewChangeMsg(i) ==
 ViewChange(i) ==
     /\ i /= views[i] % N
     \* TODO: Move this to MC
-    /\ views[i] \in Views
+    /\ views[i] + 1 \in Views
     /\ vChange' = [vChange EXCEPT ![i] = TRUE]
     /\ msgs' = [msgs EXCEPT 
         !.viewchange = @ \cup {GenerateViewChangeMsg(i)}]
