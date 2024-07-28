@@ -107,6 +107,6 @@ MCInit ==
     /\ 
        \/ EInit
        \/ RInit
-    /\ TypeOK
+    /\ Inv
 
 =====
