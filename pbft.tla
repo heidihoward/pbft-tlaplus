@@ -63,7 +63,7 @@ Views == Nat
 
 \* RequestDigest takes a client request and returns a unique identifier
 \* Since we are assuming timestamps are unique, we can use them as the digest
-\* @type: [ t : Int ] => Int;
+\* @type: {t: Int} => Int;
 RequestDigest(m) == m.t
 
 \* Set of possible request digests
@@ -160,24 +160,39 @@ LoggedMessages == [
 \* Note that messages are never removed from msgs
 \* All messages are modelled as multicasted to all replicas
 
-\* @typeAlias: requestMsgs = [ t : Int ];
-\* @typeAlias: preprepareMsgsWithRequest = [ v : Int, p : Int, n : Int, d : Int,  m : [ t : Int ] ];
-\* @typeAlias: preprepareMsgs = [ v : Int, p : Int, n : Int, d : Int];
-\* @typeAlias: prepareMsgs = [ v : Int, i : Int, n : Int, d : Int ];
-\* @typeAlias: commitMsgs = [ v : Int, i : Int, n : Int, d : Int ];
-\* @typeAlias: replyMsgs = [ v : Int, i : Int, t : Int, r : Int ];
-\* @typeAlias: checkpointMsgs = [ n : Int, d : Int, i : Int ];
-\* @typeAlias: viewchangeMsgs = [ v : Int, n : Int, c : Set ([ n : Int, d : Int, i : Int ]), p : Set ([ preprepare : $preprepareMsgs, prepare : Set ($prepareMsgs) ]), i : Int ];
-\* @typeAlias: newviewMsgs = [ v : Int, vc : Set ($viewchangeMsgs), o : Set ($preprepareMsgs), p : Int ];
+\* @typeAlias: requestMsgs = { t : Int };
+\* @typeAlias: preprepareMsgsWithRequest = { v : Int, p : Int, n : Int, d : Int,  m : ($requestMsgs) };
+\* @typeAlias: preprepareMsgs = { v : Int, p : Int, n : Int, d : Int };
+\* @typeAlias: prepareMsgs = { v : Int, i : Int, n : Int, d : Int };
+\* @typeAlias: commitMsgs = { v : Int, i : Int, n : Int, d : Int };
+\* @typeAlias: replyMsgs = { v : Int, i : Int, t : Int, r : Int };
+\* @typeAlias: checkpointMsgs = { n : Int, d : Int, i : Int };
+\* @typeAlias: viewchangeMsgs = { v : Int, n : Int, c : Set (($checkpointMsgs)), p : Set ({ preprepare : ($preprepareMsgs), prepare : Set ($prepareMsgs) }), i : Int };
+\* @typeAlias: newviewMsgs = { v : Int, vc : Set ($viewchangeMsgs), o : Set ($preprepareMsgs), p : Int };
+\* @typeAlias: prepareProof = { preprepare: ($preprepareMsgs), prepare: Set ($prepareMsgs) };
 pbft_typedefs == TRUE
 
 VARIABLE
-\* @type: [ request : Set ($requestMsgs), preprepare : Set ($preprepareMsgsWithRequest), prepare : Set ($prepareMsgs), commit : Set ($commitMsgs), reply : Set ($replyMsgs), checkpoint : Set ($checkpointMsgs), viewchange : Set ($viewchangeMsgs), newview : Set ($newviewMsgs) ] ;
+    \* @type: { request : Set ($requestMsgs), 
+    \*          preprepare : Set ($preprepareMsgsWithRequest), 
+    \*          prepare : Set ($prepareMsgs),
+    \*          commit : Set ($commitMsgs),
+    \*          reply : Set ($replyMsgs),
+    \*          checkpoint : Set ($checkpointMsgs), 
+    \*          viewchange : Set ($viewchangeMsgs), 
+    \*          newview : Set ($newviewMsgs)
+    \*        };
     msgs
 
 \* Messages each replica has accepted
 VARIABLE 
-\* @type: Int -> [ request : Set ($requestMsgs), preprepare : Set ($preprepareMsgs), prepare : Set ($prepareMsgs), commit : Set ($commitMsgs), reply : Set ($replyMsgs), checkpoint : Set ($checkpointMsgs), viewchange : Set ($viewchangeMsgs) ] ;
+    \* @type: Int -> { request : Set ($requestMsgs), 
+    \*                 preprepare : Set ($preprepareMsgs), 
+    \*                 prepare : Set ($prepareMsgs), 
+    \*                 commit : Set ($commitMsgs),
+    \*                 reply : Set ($replyMsgs),
+    \*                 checkpoint : Set ($checkpointMsgs), 
+    \*                 viewchange : Set ($viewchangeMsgs) };
     mlogs
 
 \* Replica views
@@ -247,10 +262,8 @@ Init ==
 \* Castro & Liskov 4.2 "In the pre-prepare phase, the primary assigns a sequence number, n, to the request, multicasts a preprepare message with m piggybacked to all the backups, and appends the message to its log. The message has the form ((PRE-PREPARE,v,n,d),m), where v indicates the view in which the message is being sent, m is the client's request message, and d is m's digest."
 \* Note that we have extended the preprepare message to include the primary's identity. This is not described in the paper as sender identity is implicit in the message signature, however, since we do not model signatures we must represent the sender explicitly. 
 
-\* @type: Set(Int) => Int;
 Max0(S) == CHOOSE x \in (S \union {0}) : \A y \in S : x >= y
 
-\* @type: Int => Int;
 NextN(i) == Max0({m.n: m \in mlogs[i].preprepare}) + 1
 
 PrePrepare(i) ==
@@ -485,6 +498,7 @@ ViewChange(i) ==
     /\ UNCHANGED <<mlogs, views, states, sCheckpoint>>
 
 \* True iff cp is a valid checkpoint proof for sequence number n.
+\* @type: (Set(($checkpointMsgs)), Int) => Bool;
 ValidCheckpointProof(cp, n) ==
     \/ /\ n = 0
        /\ cp = {}
@@ -496,6 +510,7 @@ ValidCheckpointProof(cp, n) ==
                 /\ m.d = StateDigest(n)
 
 \* True iff pp is a valid prepare proof for a sequence number after n_min.
+\* @type: (($prepareProof), Int) => Bool;
 ValidPrepareProof(pp, n_min) ==
     \E v \in Views, n \in SeqNums, d \in RequestDigests:
         /\ n > n_min
