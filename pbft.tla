@@ -37,7 +37,8 @@ ASSUME ByzR \subseteq R
 
 \* Set of request timestamps
 \* We use just natural numbers as there's a single client
-Tstamps == Nat
+\* Timestamp 0 is reserved for no-ops
+Tstamps == Nat \ {0}
 
 \* Set of sequence numbers
 \* Bounding sequence numbers to the total number of requests
@@ -67,7 +68,7 @@ Views == Nat
 RequestDigest(m) == m.t
 
 \* Set of possible request digests
-RequestDigests == Tstamps
+RequestDigests == Tstamps \union {0}
 
 \* StateDigest takes a replica state and returns a unique identifier
 \* Currently, we are just using the state itself as the digest
@@ -535,6 +536,21 @@ AcceptViewChange(i) ==
         /\ mlogs' = [mlogs EXCEPT ![i].viewchange = @ \cup {m}]
     /\ UNCHANGED <<msgs, views, states, sCheckpoint, vChange>>
 
+\* Castro & Liskov 4.4 "O is a set of pre-prepare messages (without the piggybacked request). O is computed as follows:
+\* (1) The primary determines the sequence number min-s of the latest stable checkpoint in V and the highest sequence number max-s in a prepare message in V.
+\* (2) The primary creates a new pre-prepare message for view v+1 for each sequence number n between min-s and max-s. There are two cases: (1) there is at least one set in the P component of some view-change message in V with sequence number n, or (2) there is no such set. In the first case, the primary creates a new message (PRE-PREPARE,v+1,n,d) , where d is the request digest in the pre-prepare message for sequence number n with the highest view number in V. In the second case, it creates a new pre-prepare message (PRE-PREPARE,v+1,n,d^null), where d^null is the digest of a special null request; a null request goes through the protocol like other requests, but its execution is a no-op.""
+
+GetDigest(ppms, sn) ==
+    IF {ppm \in ppms: ppm.n = sn} = {}
+    THEN 0
+    ELSE (CHOOSE ppm \in ppms: ppm.n = sn).d
+
+GenerateO(V,i) ==
+    LET mins == Max0(UNION {{cp.n: cp \in vcm.c}: vcm \in V}) 
+        ppms == UNION {{pp.preprepare: pp \in vcm.p}: vcm \in V}
+        maxs == Max0({ppm.n: ppm \in ppms}) IN
+    {[v |-> views[i]+1, p |-> i, n |-> sn, d |-> GetDigest(ppms,sn)] : sn \in (mins+1)..maxs}
+
 \* Castro & Liskov 4.4 "When the primary p of view v+1 receives 2f valid view-change messages for view v+1 from other replicas, it multicasts a (NEW-VIEW,v+1,V,O) message to all other replicas, where V is a set containing the valid view-change messages received by the primary plus the view-change message for v+1 the primary sent (or would have sent), and is a set of pre-prepare messages (without the piggybacked request)." 
 
 NewView(i) ==
@@ -543,15 +559,19 @@ NewView(i) ==
     \* check for 2f view-change messages
     \* we need not confirm that the view-change messages are valid as this is done in AcceptViewChange
     /\ Cardinality({m \in mlogs[i].viewchange : m.v = views[i] + 1}) = 2*F
-    \* TODO calc O
-    /\ msgs' = [msgs EXCEPT !.newview = @ \cup {[
-        v |-> views[i] + 1,
-        vc |-> {m \in mlogs[i].viewchange : m.v = views[i] + 1} \cup {GenerateViewChangeMsg(i)},
-        o |-> {},
-        p |-> i]}]
+    /\ LET V == {m \in mlogs[i].viewchange : m.v = views[i] + 1} 
+            \cup  {GenerateViewChangeMsg(i)} 
+           O == GenerateO(V,i) IN
+        /\ msgs' = [msgs EXCEPT !.newview = @ \cup {[
+            v |-> views[i] + 1,
+            vc |-> V,
+            o |-> O,
+            p |-> i]}]
+        /\ mlogs' = [mlogs EXCEPT ![i].preprepare = @ \cup O]
+    \* TODO: checkpoint and GC mlogs
     /\ views' = [views EXCEPT ![i] = views[i] + 1]
     /\ vChange' = [vChange EXCEPT ![i] = FALSE]
-    /\ UNCHANGED <<mlogs, states, sCheckpoint>>
+    /\ UNCHANGED <<states, sCheckpoint>>
 
 AcceptNewView(i) ==
     \* TODO
