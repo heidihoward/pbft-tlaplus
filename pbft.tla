@@ -485,7 +485,7 @@ GenerateViewChangeMsg(i) ==
 ViewChange(i) ==
     /\ i /= views[i] % N
     \* TODO: Move this to MC
-    /\ views[i] \in Views
+    /\ views[i] + 1 \in Views
     /\ vChange' = [vChange EXCEPT ![i] = TRUE]
     /\ msgs' = [msgs EXCEPT 
         !.viewchange = @ \cup {GenerateViewChangeMsg(i)}]
@@ -518,14 +518,18 @@ ValidPrepareProof(pp, n_min) ==
             /\ ppm.n = n
             /\ ppm.d = d
 
+\* True iff m is a valid view-change message for view v.
+ValidViewChange(m,v) ==
+    /\ m.v = v
+    /\ ValidCheckpointProof(m.c, m.n)
+    /\ \A pp \in m.p: ValidPrepareProof(pp, m.n)
+
 \* The next primary accepts valid view-changes messages. The seperate NewView action is used to act on them.
 AcceptViewChange(i) ==
     \* check that replica i will be next primary
     /\ i = (views[i] + 1) % N
     /\ \E m \in msgs.viewchange : 
-        /\ m.v = views[i] + 1
-        /\ ValidCheckpointProof(m.c, m.n)
-        /\ \A pp \in m.p: ValidPrepareProof(pp, m.n)
+        /\ ValidViewChange(m, views[i] + 1)
         /\ mlogs' = [mlogs EXCEPT ![i].viewchange = @ \cup {m}]
     /\ UNCHANGED <<msgs, views, states, sCheckpoint, vChange>>
 
@@ -540,11 +544,11 @@ GetDigest(ppms, sn) ==
     ELSE (CHOOSE ppm \in ppms: ppm.n = sn).d
 
 \* @type: (Set ($viewchangeMsgs), Int) => Set ($preprepareMsgs);
-GenerateO(V,i) ==
+GenerateO(V,i,v) ==
     LET mins == Max0(UNION {{cp.n: cp \in vcm.c}: vcm \in V}) 
         ppms == UNION {{pp.preprepare: pp \in vcm.p}: vcm \in V}
         maxs == Max0({ppm.n: ppm \in ppms}) IN
-    {[v |-> views[i]+1, p |-> i, n |-> sn, d |-> GetDigest(ppms,sn)] : sn \in (mins+1)..maxs}
+    {[v |-> v, p |-> i, n |-> sn, d |-> GetDigest(ppms,sn)] : sn \in (mins+1)..maxs}
 
 \* Castro & Liskov 4.4 "When the primary p of view v+1 receives 2f valid view-change messages for view v+1 from other replicas, it multicasts a (NEW-VIEW,v+1,V,O) message to all other replicas, where V is a set containing the valid view-change messages received by the primary plus the view-change message for v+1 the primary sent (or would have sent), and is a set of pre-prepare messages (without the piggybacked request)." 
 
@@ -556,7 +560,7 @@ NewView(i) ==
     /\ Cardinality({m \in mlogs[i].viewchange : m.v = views[i] + 1}) = 2*F
     /\ LET V == {m \in mlogs[i].viewchange : m.v = views[i] + 1} 
             \cup  {GenerateViewChangeMsg(i)} 
-           O == GenerateO(V,i) IN
+           O == GenerateO(V,i, views[i]+1) IN
         /\ msgs' = [msgs EXCEPT !.newview = @ \cup {[
             v |-> views[i] + 1,
             vc |-> V,
@@ -568,9 +572,26 @@ NewView(i) ==
     /\ vChange' = [vChange EXCEPT ![i] = FALSE]
     /\ UNCHANGED <<states, sCheckpoint>>
 
+\* Castro & Liskov 4.4 "A backup accepts a new-view message for view v+1 if it is signed properly, if the view-change messages it contains are valid for view v+1, and if the set O is correct; it verifies the correctness of O by performing a computation similar to the one used by the primary to create O. Then it adds the new information to its log as described for the primary, multicasts a prepare for each message in O to all the other replicas, adds these prepares to its log, and enters view V+1.
+
 AcceptNewView(i) ==
-    \* TODO
-    UNCHANGED <<msgs, mlogs, views, states, sCheckpoint, vChange>>
+    \E m \in msgs.newview : 
+        /\ m.v = views[i] + 1
+        /\ m.p = m.v % N
+        /\ \A vcm \in m.vc: ValidViewChange(vcm,views[i] + 1)
+        /\ m.o = GenerateO(m.vc, m.p, m.v)
+        /\ LET pms == {[
+            v |-> ppm.v, 
+            n |-> ppm.n, 
+            i |-> i, 
+            d |-> ppm.d] : ppm \in m.o} IN
+            /\ mlogs' = [mlogs EXCEPT 
+                ![i].preprepare = @ \cup m.o,
+                ![i].prepare = @ \cup pms]
+            /\ msgs' = [msgs EXCEPT !.prepare = @ \cup pms]
+    /\ views' = [views EXCEPT ![i] = views[i] + 1]
+    /\ vChange' = [vChange EXCEPT ![i] = FALSE]
+    /\ UNCHANGED <<states, sCheckpoint>>
 
 Next ==
     \E i \in R : 
