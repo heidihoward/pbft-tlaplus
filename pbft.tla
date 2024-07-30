@@ -1,15 +1,8 @@
 ---- MODULE pbft ----
 \* This TLA+ specification describes the normal case operation of Practical Byzantine Fault Tolerance protocol.
 \* See https://www.pmg.csail.mit.edu/papers/osdi99.pdf for a full description of the protocol.
+\* See https://pmg.csail.mit.edu/~castro/tm590.pdf for a correctness proof of the protocol.
 \* This specification can be checked with TLC and Apalache (https://apalache.informal.systems/).
-\* This iteration of the specification is significantly simplified from the original paper.
-\* We make the following simplifying assumptions:
-\* - no view changes, 1 fixed primary (node R1) 
-\* - no byzantine primaries
-\* - no liveness properties
-\* - dummy requests
-\* - one client with concurrent requests
-\* - no garbage collection/checkpointing (Sec. 4.3)
 
 EXTENDS Integers, FiniteSets, TLC
 
