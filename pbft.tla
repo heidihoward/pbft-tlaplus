@@ -538,13 +538,15 @@ AcceptViewChange(i) ==
 
 \* Castro & Liskov 4.4 "O is a set of pre-prepare messages (without the piggybacked request). O is computed as follows:
 \* (1) The primary determines the sequence number min-s of the latest stable checkpoint in V and the highest sequence number max-s in a prepare message in V.
-\* (2) The primary creates a new pre-prepare message for view v+1 for each sequence number n between min-s and max-s. There are two cases: (1) there is at least one set in the P component of some view-change message in V with sequence number n, or (2) there is no such set. In the first case, the primary creates a new message (PRE-PREPARE,v+1,n,d) , where d is the request digest in the pre-prepare message for sequence number n with the highest view number in V. In the second case, it creates a new pre-prepare message (PRE-PREPARE,v+1,n,d^null), where d^null is the digest of a special null request; a null request goes through the protocol like other requests, but its execution is a no-op.""
+\* (2) The primary creates a new pre-prepare message for view v+1 for each sequence number n between min-s and max-s. There are two cases: (1) there is at least one set in the P component of some view-change message in V with sequence number n, or (2) there is no such set. In the first case, the primary creates a new message (PRE-PREPARE,v+1,n,d) , where d is the request digest in the pre-prepare message for sequence number n with the highest view number in V. In the second case, it creates a new pre-prepare message (PRE-PREPARE,v+1,n,d^null), where d^null is the digest of a special null request; a null request goes through the protocol like other requests, but its execution is a no-op."
 
+\* @type: (Set ($preprepareMsgs), Int) => Int;
 GetDigest(ppms, sn) ==
     IF {ppm \in ppms: ppm.n = sn} = {}
     THEN 0
     ELSE (CHOOSE ppm \in ppms: ppm.n = sn).d
 
+\* @type: (Set ($viewchangeMsgs), Int) => Set ($preprepareMsgs);
 GenerateO(V,i) ==
     LET mins == Max0(UNION {{cp.n: cp \in vcm.c}: vcm \in V}) 
         ppms == UNION {{pp.preprepare: pp \in vcm.p}: vcm \in V}
