@@ -78,15 +78,6 @@ StateDigests == States
 RequestMessages == 
     [t : Tstamps]
 
-\* We distinguish between two types of preprepare message, those with a piggybacked client request and those without
-
-PrePrepareWithRequestMessages == [
-    v: Views, 
-    p : R, 
-    n : SeqNums, 
-    d : RequestDigests, 
-    m : RequestMessages]
-
 PrePrepareMessages == [
     v: Views, 
     p : R, 
@@ -135,7 +126,7 @@ NewViewMessages == [
 
 Messages == [ 
     request : SUBSET RequestMessages, 
-    preprepare : SUBSET PrePrepareWithRequestMessages,
+    preprepare : SUBSET PrePrepareMessages,
     prepare : SUBSET PrepareMessages,
     commit : SUBSET CommitMessages,
     reply : SUBSET ReplyMessages,
@@ -157,7 +148,6 @@ LoggedMessages == [
 \* All messages are modelled as multicasted to all replicas
 
 \* @typeAlias: requestMsgs = { t : Int };
-\* @typeAlias: preprepareMsgsWithRequest = { v : Int, p : Int, n : Int, d : Int,  m : ($requestMsgs) };
 \* @typeAlias: preprepareMsgs = { v : Int, p : Int, n : Int, d : Int };
 \* @typeAlias: prepareMsgs = { v : Int, i : Int, n : Int, d : Int };
 \* @typeAlias: commitMsgs = { v : Int, i : Int, n : Int, d : Int };
@@ -170,7 +160,7 @@ pbft_typedefs == TRUE
 
 VARIABLE
     \* @type: { request : Set ($requestMsgs), 
-    \*          preprepare : Set ($preprepareMsgsWithRequest), 
+    \*          preprepare : Set ($preprepareMsgs), 
     \*          prepare : Set ($prepareMsgs),
     \*          commit : Set ($commitMsgs),
     \*          reply : Set ($replyMsgs),
@@ -281,8 +271,7 @@ PrePrepare(i) ==
                 v |-> views[i],
                 p |-> i,
                 n |-> NextN(i), 
-                d |-> RequestDigest(m), 
-                m |-> m]}]
+                d |-> RequestDigest(m)]}]
         /\ mlogs' = [mlogs EXCEPT 
             ![i].preprepare = @ \cup {[
                 v |-> views[i],
@@ -301,13 +290,6 @@ PrePrepare(i) ==
         \* 4) the sequence number in the pre-prepare message is between a low water mark, h, and a high water mark, H. 
     \* If backup accepts the ((PRE-PREPARE,v,n,d),m) message, it enters the prepare phase by multicasting a (PREPARE,v,n,d,i) message to all other replicas and adds both messages to its log. Otherwise, it does nothing.
 
-\* @type: $preprepareMsgsWithRequest => $preprepareMsgs;
-Strip(m) == [
-    v |-> m.v,
-    p |-> m.p,
-    n |-> m.n, 
-    d |-> m.d]
-
 \* Castro & Liskov S4.3: 
     \* The low-water mark h is equal to the sequence number of the last stable checkpoint. 
     \* The high water mark H = h + k, where k is big enough so that replicas do not stall waiting for a checkpoint to become stable. 
@@ -323,8 +305,8 @@ k == 10
 Prepare(i) ==
     /\ i /= views[i] % N
     /\ ~vChange[i]
-    /\ \E m \in msgs.preprepare: 
-        /\ m.d = RequestDigest(m.m)
+    /\ \E m \in msgs.preprepare, rm \in mlogs[i].request : 
+        /\ m.d = RequestDigest(rm)
         /\ m.p = m.v % N
         /\ m.v = views[i]
         /\ m.n > h(i)
@@ -340,8 +322,8 @@ Prepare(i) ==
                 i |-> i, 
                 d |-> m.d]}]
         /\ mlogs' = [mlogs EXCEPT 
-            ![i].request = @ \cup {m.m},
-            ![i].preprepare = @ \cup {Strip(m)},
+            ![i].request = @ \cup {rm},
+            ![i].preprepare = @ \cup {m},
             ![i].prepare = @ \cup {[
                 v |-> m.v,
                 n |-> m.n, 
@@ -556,6 +538,7 @@ ValidPrepareProof(pp, n_min) ==
             /\ ppm.d = d
 
 \* True iff m is a valid view-change message for view v.
+\* @type: ($viewchangeMsgs, Int) => Bool;
 ValidViewChange(m,v) ==
     /\ m.v = v
     /\ ValidCheckpointProof(m.c, m.n)
@@ -585,7 +568,7 @@ GetDigest(ppms, sn) ==
     THEN 0
     ELSE (CHOOSE ppm \in ppms: ppm.n = sn).d
 
-\* @type: (Set ($viewchangeMsgs), Int) => Set ($preprepareMsgs);
+\* @type: (Set ($viewchangeMsgs), Int, Int) => Set ($preprepareMsgs);
 GenerateO(V,i,v) ==
     LET mins == Max0(UNION {{cp.n: cp \in vcm.c}: vcm \in V}) 
         ppms == UNION {{pp.preprepare: pp \in vcm.p}: vcm \in V}
@@ -693,10 +676,8 @@ CommittedInv ==
 \* A variant of spec for modeling byzantine behavior
 
 InjectPreprepare(i) ==
-    /\ \E m \in PrePrepareWithRequestMessages : 
+    /\ \E m \in PrePrepareMessages : 
         /\ m.p = i
-        \* A byzantine replica can produce messages with invalid digests but we do not model that here to reduce state space as replicas will reject such messages
-        /\ m.d = RequestDigest(m.m)
         \* Similarly, we do not model non-primary replicas sending preprepares
         /\ m.p = m.v % N
         /\ msgs' = [msgs EXCEPT !.preprepare = @ \cup {m}]

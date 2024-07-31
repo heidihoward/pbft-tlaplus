@@ -43,7 +43,7 @@ RLoggedMessages == [
 RMessages == [ 
     request : RandomSetOfSubsets(2, 2, RequestMessages), 
     viewchange : RandomSetOfSubsets(2, 2, RViewChangeMessages),
-    preprepare : RandomSetOfSubsets(1, 2, PrePrepareWithRequestMessages),
+    preprepare : RandomSetOfSubsets(1, 2, PrePrepareMessages),
     prepare : RandomSetOfSubsets(1, 2, PrepareMessages),
     commit : RandomSetOfSubsets(1, 2, CommitMessages),
     reply : RandomSetOfSubsets(1, 2, ReplyMessages),
