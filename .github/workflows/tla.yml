@@ -22,7 +22,7 @@ jobs:
           tar zxvf apalache.tgz
       - name: Typecheck
         run: |
-          ./apalache/bin/apalache-mc typecheck MCpbft.tla
+          ./apalache/bin/apalache-mc typecheck APApbft.tla
   tlc:
     runs-on: ubuntu-latest
     steps:
