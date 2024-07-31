@@ -673,10 +673,11 @@ CommittedInv ==
     \A m \in RequestMessages, v \in Views, n \in SeqNums, i \in (R \ ByzR): CommittedLocal(m,v,n,i) => Committed(m,v,n)
 
 ----
-\* A variant of spec for modeling byzantine behavior
+\* The following is a variant of spec for modeling byzantine behavior
 
 InjectPreprepare(i) ==
-    /\ \E m \in PrePrepareMessages : 
+    /\ \E m \in PrePrepareMessages :
+        \* Replicas cannot impersonate other replicas 
         /\ m.p = i
         \* Similarly, we do not model non-primary replicas sending preprepares
         /\ m.p = m.v % N
@@ -705,9 +706,22 @@ InjectCheckpoint(i) ==
     /\ \E m \in CheckpointMessages : 
         /\ m.i = i
         /\ msgs' = [msgs EXCEPT !.checkpoint = @ \cup {m}]
-    /\ UNCHANGED <<mlogs, views, states, sCheckpoint, vChange>> 
+    /\ UNCHANGED <<mlogs, views, states, sCheckpoint, vChange>>
 
-\* Any message sent by a Byzantine replica can be injected into the system
+InjectViewChange(i) ==
+    /\ \E m \in ViewChangeMessages : 
+        /\ m.i = i
+        /\ msgs' = [msgs EXCEPT !.viewchange = @ \cup {m}]
+    /\ UNCHANGED <<mlogs, views, states, sCheckpoint, vChange>>
+
+InjectNewView(i) ==
+    /\ \E m \in NewViewMessages : 
+        /\ m.p = i
+        /\ m.p = m.v % N
+        /\ msgs' = [msgs EXCEPT !.newview = @ \cup {m}]
+    /\ UNCHANGED <<mlogs, views, states, sCheckpoint, vChange>>
+
+\* Any message sent by a Byzantine replica can be injected into the network
 InjectMessage ==
     \E i \in ByzR : 
         \/ InjectPreprepare(i)
@@ -715,8 +729,10 @@ InjectMessage ==
         \/ InjectCommit(i)
         \/ InjectReply(i)
         \/ InjectCheckpoint(i)
+        \/ InjectViewChange(i)
+        \/ InjectNewView(i)
 
-\* Extends Next to allow 
+\* Extends Next to allow message injection from byzantine replicas
 NextByz ==
     \/ Next
     \/ InjectMessage
@@ -733,7 +749,8 @@ Inv ==
 SpecInv == Inv /\ [][Next]_vars
 
 ----
-\* Invariants for debugging, add to cfg to enable
+\* Invariants for debugging
+\* Add these to the cfg file to enable them
 
 DecidedTstamps == {t \in Tstamps: \E r \in Results: Decided(t,r)}
 
