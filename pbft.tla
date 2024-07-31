@@ -1,15 +1,8 @@
 ---- MODULE pbft ----
 \* This TLA+ specification describes the normal case operation of Practical Byzantine Fault Tolerance protocol.
 \* See https://www.pmg.csail.mit.edu/papers/osdi99.pdf for a full description of the protocol.
+\* See https://pmg.csail.mit.edu/~castro/tm590.pdf for a correctness proof of the protocol.
 \* This specification can be checked with TLC and Apalache (https://apalache.informal.systems/).
-\* This iteration of the specification is significantly simplified from the original paper.
-\* We make the following simplifying assumptions:
-\* - no view changes, 1 fixed primary (node R1) 
-\* - no byzantine primaries
-\* - no liveness properties
-\* - dummy requests
-\* - one client with concurrent requests
-\* - no garbage collection/checkpointing (Sec. 4.3)
 
 EXTENDS Integers, FiniteSets, TLC
 
@@ -37,7 +30,8 @@ ASSUME ByzR \subseteq R
 
 \* Set of request timestamps
 \* We use just natural numbers as there's a single client
-Tstamps == Nat
+\* Timestamp 0 is reserved for no-ops
+Tstamps == Nat \ {0}
 
 \* Set of sequence numbers
 \* Bounding sequence numbers to the total number of requests
@@ -67,7 +61,7 @@ Views == Nat
 RequestDigest(m) == m.t
 
 \* Set of possible request digests
-RequestDigests == Tstamps
+RequestDigests == Tstamps \union {0}
 
 \* StateDigest takes a replica state and returns a unique identifier
 \* Currently, we are just using the state itself as the digest
@@ -522,16 +516,37 @@ ValidPrepareProof(pp, n_min) ==
             /\ ppm.n = n
             /\ ppm.d = d
 
+\* True iff m is a valid view-change message for view v.
+ValidViewChange(m,v) ==
+    /\ m.v = v
+    /\ ValidCheckpointProof(m.c, m.n)
+    /\ \A pp \in m.p: ValidPrepareProof(pp, m.n)
+
 \* The next primary accepts valid view-changes messages. The seperate NewView action is used to act on them.
 AcceptViewChange(i) ==
     \* check that replica i will be next primary
     /\ i = (views[i] + 1) % N
     /\ \E m \in msgs.viewchange : 
-        /\ m.v = views[i] + 1
-        /\ ValidCheckpointProof(m.c, m.n)
-        /\ \A pp \in m.p: ValidPrepareProof(pp, m.n)
+        /\ ValidViewChange(m, views[i] + 1)
         /\ mlogs' = [mlogs EXCEPT ![i].viewchange = @ \cup {m}]
     /\ UNCHANGED <<msgs, views, states, sCheckpoint, vChange>>
+
+\* Castro & Liskov 4.4 "O is a set of pre-prepare messages (without the piggybacked request). O is computed as follows:
+\* (1) The primary determines the sequence number min-s of the latest stable checkpoint in V and the highest sequence number max-s in a prepare message in V.
+\* (2) The primary creates a new pre-prepare message for view v+1 for each sequence number n between min-s and max-s. There are two cases: (1) there is at least one set in the P component of some view-change message in V with sequence number n, or (2) there is no such set. In the first case, the primary creates a new message (PRE-PREPARE,v+1,n,d) , where d is the request digest in the pre-prepare message for sequence number n with the highest view number in V. In the second case, it creates a new pre-prepare message (PRE-PREPARE,v+1,n,d^null), where d^null is the digest of a special null request; a null request goes through the protocol like other requests, but its execution is a no-op."
+
+\* @type: (Set ($preprepareMsgs), Int) => Int;
+GetDigest(ppms, sn) ==
+    IF {ppm \in ppms: ppm.n = sn} = {}
+    THEN 0
+    ELSE (CHOOSE ppm \in ppms: ppm.n = sn).d
+
+\* @type: (Set ($viewchangeMsgs), Int) => Set ($preprepareMsgs);
+GenerateO(V,i,v) ==
+    LET mins == Max0(UNION {{cp.n: cp \in vcm.c}: vcm \in V}) 
+        ppms == UNION {{pp.preprepare: pp \in vcm.p}: vcm \in V}
+        maxs == Max0({ppm.n: ppm \in ppms}) IN
+    {[v |-> v, p |-> i, n |-> sn, d |-> GetDigest(ppms,sn)] : sn \in (mins+1)..maxs}
 
 \* Castro & Liskov 4.4 "When the primary p of view v+1 receives 2f valid view-change messages for view v+1 from other replicas, it multicasts a (NEW-VIEW,v+1,V,O) message to all other replicas, where V is a set containing the valid view-change messages received by the primary plus the view-change message for v+1 the primary sent (or would have sent), and is a set of pre-prepare messages (without the piggybacked request)." 
 
@@ -541,19 +556,40 @@ NewView(i) ==
     \* check for 2f view-change messages
     \* we need not confirm that the view-change messages are valid as this is done in AcceptViewChange
     /\ Cardinality({m \in mlogs[i].viewchange : m.v = views[i] + 1}) = 2*F
-    \* TODO calc O
-    /\ msgs' = [msgs EXCEPT !.newview = @ \cup {[
-        v |-> views[i] + 1,
-        vc |-> {m \in mlogs[i].viewchange : m.v = views[i] + 1} \cup {GenerateViewChangeMsg(i)},
-        o |-> {},
-        p |-> i]}]
+    /\ LET V == {m \in mlogs[i].viewchange : m.v = views[i] + 1} 
+            \cup  {GenerateViewChangeMsg(i)} 
+           O == GenerateO(V,i, views[i]+1) IN
+        /\ msgs' = [msgs EXCEPT !.newview = @ \cup {[
+            v |-> views[i] + 1,
+            vc |-> V,
+            o |-> O,
+            p |-> i]}]
+        /\ mlogs' = [mlogs EXCEPT ![i].preprepare = @ \cup O]
+    \* TODO: checkpoint and GC mlogs
     /\ views' = [views EXCEPT ![i] = views[i] + 1]
     /\ vChange' = [vChange EXCEPT ![i] = FALSE]
-    /\ UNCHANGED <<mlogs, states, sCheckpoint>>
+    /\ UNCHANGED <<states, sCheckpoint>>
+
+\* Castro & Liskov 4.4 "A backup accepts a new-view message for view v+1 if it is signed properly, if the view-change messages it contains are valid for view v+1, and if the set O is correct; it verifies the correctness of O by performing a computation similar to the one used by the primary to create O. Then it adds the new information to its log as described for the primary, multicasts a prepare for each message in O to all the other replicas, adds these prepares to its log, and enters view V+1.
 
 AcceptNewView(i) ==
-    \* TODO
-    UNCHANGED <<msgs, mlogs, views, states, sCheckpoint, vChange>>
+    \E m \in msgs.newview : 
+        /\ m.v = views[i] + 1
+        /\ m.p = m.v % N
+        /\ \A vcm \in m.vc: ValidViewChange(vcm,views[i] + 1)
+        /\ m.o = GenerateO(m.vc, m.p, m.v)
+        /\ LET pms == {[
+            v |-> ppm.v, 
+            n |-> ppm.n, 
+            i |-> i, 
+            d |-> ppm.d] : ppm \in m.o} IN
+            /\ mlogs' = [mlogs EXCEPT 
+                ![i].preprepare = @ \cup m.o,
+                ![i].prepare = @ \cup pms]
+            /\ msgs' = [msgs EXCEPT !.prepare = @ \cup pms]
+    /\ views' = [views EXCEPT ![i] = views[i] + 1]
+    /\ vChange' = [vChange EXCEPT ![i] = FALSE]
+    /\ UNCHANGED <<states, sCheckpoint>>
 
 Next ==
     \E i \in R : 
