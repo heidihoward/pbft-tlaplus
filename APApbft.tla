@@ -1,9 +1,12 @@
 ---- MODULE APApbft ----
+\* PBFT model for checking with Apalache
 
 EXTENDS pbft
 
+\* Set of replicas
 MC_R == 0..3
 
+\* Set of requests which are byzantine
 \* @type: Set(Int);
 MC_ByzR == {}
 
