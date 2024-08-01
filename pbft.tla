@@ -606,7 +606,7 @@ AcceptNewView(i) ==
     \E m \in msgs.newview : 
         /\ m.v = views[i] + 1
         /\ m.p = m.v % N
-        /\ \A vcm \in m.vc: ValidViewChange(vcm,views[i] + 1)
+        /\ \A vcm \in m.vc: ValidViewChange(vcm,m.v)
         /\ m.o = GenerateO(m.vc, m.p, m.v)
         /\ LET pms == {[
             v |-> ppm.v, 
@@ -674,51 +674,79 @@ CommittedInv ==
 
 ----
 \* The following is a variant of spec for modeling byzantine behavior
+\* We assume that replicas cannot impersonate other replicas 
 
 InjectPreprepare(i) ==
-    /\ \E m \in PrePrepareMessages :
-        \* Replicas cannot impersonate other replicas 
-        /\ m.p = i
-        \* Similarly, we do not model non-primary replicas sending preprepares
-        /\ m.p = m.v % N
-        /\ msgs' = [msgs EXCEPT !.preprepare = @ \cup {m}]
+    /\ \E v \in Views, n \in SeqNums, d \in RequestDigests :
+        \* We do not model non-primary replicas sending preprepares
+        /\ i = v % N
+        /\ msgs' = [msgs EXCEPT !.preprepare = @ \cup {[
+            v |-> v,
+            p |-> i,
+            n |-> n, 
+            d |-> d]}]
     /\ UNCHANGED <<mlogs, views, states, sCheckpoint, vChange>>
 
 InjectPrepare(i) ==
-    /\ \E m \in PrepareMessages : 
-        /\ m.i = i
-        /\ msgs' = [msgs EXCEPT !.prepare = @ \cup {m}]
+    /\ \E v \in Views, n \in SeqNums, d \in RequestDigests :
+        /\ msgs' = [msgs EXCEPT !.prepare = @ \cup {[
+            v |-> v,
+            i |-> i,
+            n |-> n, 
+            d |-> d]}]
     /\ UNCHANGED <<mlogs, views, states, sCheckpoint, vChange>>
 
 InjectCommit(i) ==
-    /\ \E m \in CommitMessages : 
-        /\ m.i = i
-        /\ msgs' = [msgs EXCEPT !.commit = @ \cup {m}]
+    /\ \E v \in Views, n \in SeqNums, d \in RequestDigests :
+        /\ msgs' = [msgs EXCEPT !.commit = @ \cup {[
+            v |-> v,
+            i |-> i,
+            n |-> n, 
+            d |-> d]}]
     /\ UNCHANGED <<mlogs, views, states, sCheckpoint, vChange>>
 
 InjectReply(i) ==
-    /\ \E m \in ReplyMessages : 
-        /\ m.i = i
-        /\ msgs' = [msgs EXCEPT !.reply = @ \cup {m}]
+    /\ \E v \in Views, t \in Tstamps, r \in Results :
+        /\ msgs' = [msgs EXCEPT !.reply = @ \cup {[
+            v |-> v,
+            t |-> t,
+            i |-> i,
+            r |-> r]}]
     /\ UNCHANGED <<mlogs, views, states, sCheckpoint, vChange>>
 
 InjectCheckpoint(i) ==
-    /\ \E m \in CheckpointMessages : 
-        /\ m.i = i
-        /\ msgs' = [msgs EXCEPT !.checkpoint = @ \cup {m}]
+    /\ \E n \in SeqNums, d \in StateDigests :
+        /\ msgs' = [msgs EXCEPT !.checkpoint = @ \cup {[
+            n |-> n,
+            d |-> d,
+            i |-> i]}]
     /\ UNCHANGED <<mlogs, views, states, sCheckpoint, vChange>>
 
 InjectViewChange(i) ==
-    /\ \E m \in ViewChangeMessages : 
-        /\ m.i = i
-        /\ msgs' = [msgs EXCEPT !.viewchange = @ \cup {m}]
+    /\ \E v \in Views, n \in (SeqNums \cup {0}), 
+            c \in SUBSET msgs.checkpoint, p \in [preprepare : msgs.preprepare, prepare : SUBSET msgs.prepare] :
+        \* Any replica that receive a view change message will check that the checkpoint/prepare proofs are valid
+        \* Therefore, we do not need to brother injecting view change messages with invalid proofs
+        /\ ValidCheckpointProof(c, n)
+        /\ \A pp \in p: ValidPrepareProof(pp, n)
+        /\ msgs' = [msgs EXCEPT !.viewchange = @ \cup {[
+            v |-> v,
+            n |-> n,
+            c |-> c,
+            p |-> p,
+            i |-> i]}]
     /\ UNCHANGED <<mlogs, views, states, sCheckpoint, vChange>>
 
 InjectNewView(i) ==
-    /\ \E m \in NewViewMessages : 
-        /\ m.p = i
-        /\ m.p = m.v % N
-        /\ msgs' = [msgs EXCEPT !.newview = @ \cup {m}]
+    /\ \E v \in Views, vc \in SUBSET msgs.viewchange, o \in SUBSET msgs.prepare : 
+        /\ i = v % N
+        /\ \A vcm \in vc: ValidViewChange(vcm, v)
+        /\ o = GenerateO(vc, i, v)
+        /\ msgs' = [msgs EXCEPT !.newview = @ \cup {[
+            v |-> v,
+            vc |-> vc,
+            o |-> o,
+            p |-> i]}]
     /\ UNCHANGED <<mlogs, views, states, sCheckpoint, vChange>>
 
 \* Any message sent by a Byzantine replica can be injected into the network
