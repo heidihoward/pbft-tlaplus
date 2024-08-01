@@ -643,7 +643,7 @@ Spec == Init /\ [][Next]_vars
     \* The client waits for f+1 replies with valid signatures from different replicas, and with the same t and r, before accepting the result r.
 
 Decided(t,r) == 
-    Cardinality({m \in msgs.reply: m.t = t /\ m.r = r}) >= F+1
+    Cardinality({rm.i: rm \in {m \in msgs.reply: m.t = t /\ m.r = r}}) >= F+1
 
 OneReplyInv == 
     \A t \in Tstamps :
