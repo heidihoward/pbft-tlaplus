@@ -607,6 +607,8 @@ AcceptNewView(i) ==
         /\ m.v = views[i] + 1
         /\ m.p = m.v % N
         /\ \A vcm \in m.vc: ValidViewChange(vcm,m.v)
+        \* there must be sufficient view change messages
+        /\ Cardinality(m.vc) = 2*F +1
         /\ m.o = GenerateO(m.vc, m.p, m.v)
         /\ LET pms == {[
             v |-> ppm.v, 
@@ -724,7 +726,8 @@ InjectCheckpoint(i) ==
 
 InjectViewChange(i) ==
     /\ \E v \in Views, n \in (SeqNums \cup {0}), 
-            c \in SUBSET msgs.checkpoint, p \in [preprepare : msgs.preprepare, prepare : SUBSET msgs.prepare] :
+            c \in SUBSET msgs.checkpoint, 
+            p \in SUBSET [preprepare : msgs.preprepare, prepare : SUBSET msgs.prepare] :
         \* Any replica that receive a view change message will check that the checkpoint/prepare proofs are valid
         \* Therefore, we do not need to brother injecting view change messages with invalid proofs
         /\ ValidCheckpointProof(c, n)
@@ -758,7 +761,7 @@ InjectMessage ==
         \/ InjectReply(i)
         \/ InjectCheckpoint(i)
         \/ InjectViewChange(i)
-        \/ InjectNewView(i)
+        \* \/ InjectNewView(i)
 
 \* Extends Next to allow message injection from byzantine replicas
 NextByz ==
