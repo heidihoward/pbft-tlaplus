@@ -475,11 +475,14 @@ UnstableCheckpoint(i) ==
 \* Castro & Liskov S4.3:
     \* Each replica collects checkpoint messages in its log until it has 2f+1 of them for sequence number n with the same digest d signed by different replicas (including possibly its own such message). 
     \* These 2f+1 messages are the proof of correctness for the checkpoint.
+    \* A checkpoint with a proof becomes stable and the replica discards all pre-prepare, prepare, and commit messages with sequence number less than or equal to from its log; it also discards all earlier checkpoints and checkpoint messages
 
 StableCheckpoint(i) ==
     /\ \E m \in msgs.checkpoint : 
         /\ Cardinality({mc \in mlogs[i].checkpoint : 
             mc.n = m.n /\ mc.d = m.d} \union {m}) = 2*F + 1
+        \* Whilst not specified explicitly in the paper, we require that a replica has executed upto the checkpoint before it can be considered stable. This is because if we discard/ignore the eariler messages, then the replica may not ever execute up to the checkpoint.
+        /\ states[i] >= m.n
         /\ mlogs' = [mlogs EXCEPT 
             ![i].preprepare = {mpp \in @ : mpp.n > m.n},
             ![i].prepare = {mp \in @ : mp.n > m.n},
@@ -682,8 +685,9 @@ SafetyInv == OneReplyInv /\ OneResultInv
 \* Castro & Liskov S4.2:
     \* committed(m,v,n) is true if and only if prepared(m,v,n,i) is true for all i in some set of f+1 non-faulty replicas
 
+\* In practice, it is nessacary to weaken this invariant to allow for replicas with a stable checkpoint after n to be included
 Committed(m,v,n) ==
-    Cardinality({i \in (R \ ByzR) : Prepared(m,v,n,i)}) >= F+1
+    Cardinality({i \in (R \ ByzR) : Prepared(m,v,n,i) \/ h(i) >= n}) >= F+1
 
 \* Castro & Liskov S4.2: 
     \* The commit phase ensures the following invariant: if committed-local(m,v,n,i) is true for some non-faulty i then committed(m,v,n) is true. 
@@ -780,7 +784,7 @@ InjectMessage ==
         \/ InjectReply(i)
         \/ InjectCheckpoint(i)
         \/ InjectViewChange(i)
-        \* \/ InjectNewView(i)
+        \/ InjectNewView(i)
 
 \* Extends Next to allow message injection from byzantine replicas
 NextByz ==
