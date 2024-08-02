@@ -4,7 +4,7 @@
 \* See https://pmg.csail.mit.edu/~castro/tm590.pdf for a correctness proof of the protocol.
 \* This specification can be checked with TLC and Apalache (https://apalache.informal.systems/).
 
-EXTENDS Integers, FiniteSets, TLC
+EXTENDS Integers, FiniteSets
 
 \* Castro & Liskov S4: 
     \* We denote the set of replicas by R and identify each replica using an integer in {0,..|R|-1}.
