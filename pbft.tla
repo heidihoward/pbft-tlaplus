@@ -1,29 +1,32 @@
 ---- MODULE pbft ----
-\* This TLA+ specification describes the normal case operation of Practical Byzantine Fault Tolerance protocol.
+\* This TLA+ specification describes Practical Byzantine Fault Tolerance protocol.
 \* See https://www.pmg.csail.mit.edu/papers/osdi99.pdf for a full description of the protocol.
 \* See https://pmg.csail.mit.edu/~castro/tm590.pdf for a correctness proof of the protocol.
 \* This specification can be checked with TLC and Apalache (https://apalache.informal.systems/).
 
 EXTENDS Integers, FiniteSets, TLC
 
-\* Set of replicas
 \* Castro & Liskov S4: 
     \* We denote the set of replicas by R and identify each replica using an integer in {0,..|R|-1}.
+
+\* Set of replicas
+\* We use integers to represent replicas but model values can otherwise be used to take advantage of symmetry when model checking
 CONSTANT 
 \* @type: Set(Int);
     R
 
+\* Total number of replicas
 N == Cardinality(R)
+
+\* Upper bound on the number of byzantine replicas
 F == (N - 1) \div 3
 
 \* Castro & Liskov S4:
     \* For simplicity, we assume N=3F+1 where F is the maximum number of replicas that may be faulty.
 ASSUME N = 3*F + 1
 
-\* Don't include the primary in the symmetry set
-Symmetry == Permutations(R)
-
-\* Byzantine replicas (backups only)
+\* Set of byzantine replicas
+\* Note that if |ByzR| > F then the protocol is not guaranteed to be safe
 CONSTANT
 \* @type: Set(Int);    
     ByzR
@@ -37,9 +40,11 @@ Tstamps == Nat \ {0}
 
 \* Set of sequence numbers
 \* Bounding sequence numbers to the total number of requests
+\* In practice, more SeqNums may be needed due to no-ops
 SeqNums == Tstamps
 
-\* Sequence numbers to checkpoint at. An empty set means checkpointing is disabled
+\* Sequence numbers to checkpoint at. 
+\* An empty set means checkpointing is disabled
 CONSTANT 
     \* @type: Set(Int);  
     Checkpoints 
@@ -47,7 +52,7 @@ CONSTANT
 ASSUME Checkpoints \subseteq SeqNums
 
 \* Set of services states
-\* We use the sequence number of the last request as the service state
+\* We use the sequence number of the last request executed as the service state
 States == SeqNums \union {0}
 
 \* Set of results that clients can receive
@@ -143,10 +148,6 @@ LoggedMessages == [
     checkpoint : SUBSET CheckpointMessages,
     viewchange : SUBSET ViewChangeMessages]
 
-\* Set of all messages ever sent
-\* Note that messages are never removed from msgs
-\* All messages are modelled as multicasted to all replicas
-
 \* @typeAlias: requestMsgs = { t : Int };
 \* @typeAlias: preprepareMsgs = { v : Int, p : Int, n : Int, d : Int };
 \* @typeAlias: prepareMsgs = { v : Int, i : Int, n : Int, d : Int };
@@ -158,6 +159,10 @@ LoggedMessages == [
 \* @typeAlias: prepareProof = { preprepare: ($preprepareMsgs), prepare: Set ($prepareMsgs) };
 pbft_typedefs == TRUE
 
+
+\* Set of all messages ever sent
+\* Note that messages are never removed from msgs
+\* All messages are modelled as multicasted to all replicas
 VARIABLE
     \* @type: { request : Set ($requestMsgs), 
     \*          preprepare : Set ($preprepareMsgs), 
@@ -226,6 +231,7 @@ vars == <<msgs, mlogs, views, states, sCheckpoint, vChange>>
     \* The primary atomically multicasts the request to all the backups using the protocol described in the next section.
 
 \* We begin with all client requests already in the set of messages
+\* In PBFT, the client only sends its request to the primary, who piggybacks it on pre-prepare messages. For simplicity, we model the client as sending requests to all replicas.
 \* We omit the operation o and client c for simplicity
 Init ==
     /\ msgs = [ 
@@ -255,13 +261,14 @@ Init ==
     \* In the pre-prepare phase, the primary assigns a sequence number, n, to the request, multicasts a preprepare message with m piggybacked to all the backups, and appends the message to its log. 
     \* The message has the form ((PRE-PREPARE,v,n,d),m), where v indicates the view in which the message is being sent, m is the client's request message, and d is m's digest.
 
-\* Note that we have extended the preprepare message to include the primary's identity. This is not described in the paper as sender identity is implicit in the message signature, however, since we do not model signatures we must represent the sender explicitly. 
+\* Note that we have extended the preprepare message to include the primary's identity. This is not described in the paper as sender identity is implicit in the message signature, however, since we do not model signatures we must represent the sender explicitly. We have done the same for new view messages.
 
 Max0(S) == CHOOSE x \in (S \union {0}) : \A y \in S : x >= y
 
 NextN(i) == Max0({m.n: m \in mlogs[i].preprepare}) + 1
 
 PrePrepare(i) ==
+    \* Only the primary can send pre-prepare messages
     /\ i = views[i] % N
     \* TODO: move to MC file
     /\ NextN(i) \in SeqNums
@@ -295,15 +302,18 @@ PrePrepare(i) ==
     \* The high water mark H = h + k, where k is big enough so that replicas do not stall waiting for a checkpoint to become stable. 
     \* For example, if checkpoints are taken every 100 requests, might be 200.
 
+\* Sequence number of last stable checkpoint
 \* We are using Max here but all the n's in sCheckpoint[i] are the same.
-\* Alternatively, we could have used CHOOSE.
+\* Alternatively, we could have used CHOOSE directly.
 h(i) == Max0({m.n: m \in sCheckpoint[i]})
 
 \* Watermark window size
 k == 10
 
 Prepare(i) ==
+    \* Only backups accept preprepare messages
     /\ i /= views[i] % N
+    \* No new prepare messages are accepted during a view change
     /\ ~vChange[i]
     /\ \E m \in msgs.preprepare, rm \in mlogs[i].request : 
         /\ m.d = RequestDigest(rm)
@@ -361,22 +371,20 @@ Prepared(m,v,n,i) ==
 
 Commit(i) ==
     /\ ~vChange[i]
-    /\ \E m \in mlogs[i].request : 
-        \E n \in SeqNums :
-            \E v \in Views : 
-                /\ Prepared(m,v,n,i)
-                /\ msgs' = [msgs EXCEPT 
-                    !.commit = @ \cup {[
-                        v |-> v,
-                        n |-> n, 
-                        i |-> i, 
-                        d |-> RequestDigest(m)]}]
-                /\ mlogs' = [mlogs EXCEPT 
-                    ![i].commit = @ \cup {[
-                        v |-> v,
-                        n |-> n, 
-                        i |-> i, 
-                        d |-> RequestDigest(m)]}]
+    /\ \E m \in mlogs[i].request, n \in SeqNums, v \in Views : 
+        /\ Prepared(m,v,n,i)
+        /\ msgs' = [msgs EXCEPT 
+            !.commit = @ \cup {[
+                v |-> v,
+                n |-> n, 
+                i |-> i, 
+                d |-> RequestDigest(m)]}]
+        /\ mlogs' = [mlogs EXCEPT 
+            ![i].commit = @ \cup {[
+                v |-> v,
+                n |-> n, 
+                i |-> i, 
+                d |-> RequestDigest(m)]}]
     /\ UNCHANGED <<views, states, sCheckpoint, vChange>>
 
 \* Castro & Liskov S4.2: 
@@ -406,7 +414,7 @@ CommittedLocal(m,v,n,i) ==
     \* A replica sends the reply to the request directly to the client. 
     \* The reply has the form (REPLY,v,t,c,i,r) where v is the current view number, t is the timestamp of the corresponding request, i is the replica number, and r is the result of executing the requested operation.
 
-\* We use dummy requests so the result is simply the request sequence number
+\* We have split the execute action into two, one with and one without checkpointing.
 ExecuteNoCheckpoint(i) ==
     /\ ~vChange[i]
     /\ \E m \in mlogs[i].request : 
@@ -417,7 +425,8 @@ ExecuteNoCheckpoint(i) ==
             /\ msgs' = [msgs EXCEPT !.reply = @ \cup {[
                 v |-> v,
                 t |-> m.t, 
-                i |-> i, 
+                i |-> i,
+                \* We use dummy requests so the result is simply the request sequence number
                 r |-> n]}]
             /\ states' = [states EXCEPT ![i] = n]
     /\ UNCHANGED <<mlogs, views, sCheckpoint, vChange>>
@@ -451,8 +460,12 @@ ExecuteAndCheckpoint(i) ==
             /\ states' = [states EXCEPT ![i] = n]
     /\ UNCHANGED <<views, sCheckpoint, vChange>>
 
+\* accept a new checkpoint message
 UnstableCheckpoint(i) ==
     /\ \E m \in msgs.checkpoint : 
+        \* No need to collect checkpoints from before our last stable checkpoint
+        /\ m.n > h(i)
+        \* We only need 2f+1 matching checkpoints
         /\ Cardinality({mc \in mlogs[i].checkpoint : 
             mc.n = m.n /\ mc.d = m.d} \union {m}) < 2*F + 1
         /\ mlogs' = [mlogs EXCEPT 
@@ -549,7 +562,10 @@ AcceptViewChange(i) ==
     \* check that replica i will be next primary
     /\ i = (views[i] + 1) % N
     /\ \E m \in msgs.viewchange : 
+        \* Only accept valid view-change messages
         /\ ValidViewChange(m, views[i] + 1)
+        \* Only accept upto 2f view-change messages, no more are needed
+        /\ Cardinality({vcm \in mlogs[i].viewchange : vcm.v = views[i] + 1}) < 2*F
         /\ mlogs' = [mlogs EXCEPT ![i].viewchange = @ \cup {m}]
     /\ UNCHANGED <<msgs, views, states, sCheckpoint, vChange>>
 
@@ -582,8 +598,8 @@ NewView(i) ==
     \* check that replica i will be next primary
     /\ i = (views[i] + 1) % N
     \* check for 2f view-change messages
-    \* we need not confirm that the view-change messages are valid as this is done in AcceptViewChange
     /\ Cardinality({m \in mlogs[i].viewchange : m.v = views[i] + 1}) = 2*F
+    \* we need not confirm that the view-change messages are valid as this is done in AcceptViewChange
     /\ LET V == {m \in mlogs[i].viewchange : m.v = views[i] + 1} 
             \cup  {GenerateViewChangeMsg(i)} 
            O == GenerateO(V,i, views[i]+1) IN
@@ -592,7 +608,10 @@ NewView(i) ==
             vc |-> V,
             o |-> O,
             p |-> i]}]
-        /\ mlogs' = [mlogs EXCEPT ![i].preprepare = @ \cup O]
+        /\ mlogs' = [mlogs EXCEPT 
+            ![i].preprepare = @ \cup O,
+            \* whilst not strictly necessary, we clear the viewchange messages as they are no longer needed
+            ![i].viewchange = {}]
     \* TODO: checkpoint and GC mlogs
     /\ views' = [views EXCEPT ![i] = views[i] + 1]
     /\ vChange' = [vChange EXCEPT ![i] = FALSE]
