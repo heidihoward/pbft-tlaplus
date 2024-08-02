@@ -741,7 +741,7 @@ InjectViewChange(i) ==
     /\ UNCHANGED <<mlogs, views, states, sCheckpoint, vChange>>
 
 InjectNewView(i) ==
-    /\ \E v \in Views, vc \in SUBSET msgs.viewchange, o \in SUBSET msgs.prepare : 
+    /\ \E v \in Views, vc \in SUBSET msgs.viewchange, o \in SUBSET msgs.preprepare : 
         /\ i = v % N
         /\ \A vcm \in vc: ValidViewChange(vcm, v)
         /\ o = GenerateO(vc, i, v)
