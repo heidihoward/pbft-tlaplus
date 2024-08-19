@@ -38,7 +38,7 @@ jobs:
         run: |
           git clone https://github.com/pmer/tla-bin.git
           cd tla-bin
-          ./download_or_update_tla.sh
+          ./download_or_update_tla.sh --nightly
           sudo ./install.sh
       - name: Sany
         run: sany *.tla
