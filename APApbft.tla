@@ -8,7 +8,7 @@ MC_R == 0..3
 
 \* Set of requests which are byzantine
 \* @type: Set(Int);
-MC_ByzR == {}
+MC_ByzR == MC_R
 
 MC_Tstamps == 1..3
 

@@ -591,8 +591,11 @@ GetDigest(ppms, sn) ==
 GenerateO(V,i,v) ==
     LET mins == Max0(UNION {{cp.n: cp \in vcm.c}: vcm \in V}) 
         ppms == UNION {{pp.preprepare: pp \in vcm.p}: vcm \in V}
-        maxs == Max0({ppm.n: ppm \in ppms}) IN
-    {[v |-> v, p |-> i, n |-> sn, d |-> GetDigest(ppms,sn)] : sn \in (mins+1)..maxs}
+        maxs == Max0({ppm.n: ppm \in ppms}) 
+        \* Apalache does not yet support integer ranges with non-constant bounds:
+        \* https://github.com/apalache-mc/apalache/blob/main/docs/src/apalache/known-issues.md#integer-ranges-with-non-constant-bounds
+        apa == { j \in Views : mins+1 <= j /\ j <= maxs} IN
+    {[v |-> v, p |-> i, n |-> sn, d |-> GetDigest(ppms,sn)] : sn \in apa }
 
 \* Castro & Liskov S4.4: 
     \* When the primary p of view v+1 receives 2f valid view-change messages for view v+1 from other replicas, it multicasts a (NEW-VIEW,v+1,V,O) message to all other replicas, where V is a set containing the valid view-change messages received by the primary plus the view-change message for v+1 the primary sent (or would have sent), and is a set of pre-prepare messages (without the piggybacked request).

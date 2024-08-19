@@ -89,4 +89,19 @@ MCInit ==
        \/ RInit
     /\ Inv
 
+-------
+
+\* This is Heidi's definition of GenerateO moved out of pbft. However, Apalache
+\* does not support  (mins+1)..maxs  when mins and maxs are non-constant.
+\* Moreover, Apalache does not support re-defining this non-zero arity operator,
+\* which is why the more complex definition is now in pbft and the simpler one
+\* below.
+\* @type: (Set ($viewchangeMsgs), Int, Int) => Set ($preprepareMsgs);
+MC_GenerateO(V,i,v) ==
+    LET mins == Max0(UNION {{cp.n: cp \in vcm.c}: vcm \in V}) 
+        ppms == UNION {{pp.preprepare: pp \in vcm.p}: vcm \in V}
+        maxs == Max0({ppm.n: ppm \in ppms}) IN
+    {[v |-> v, p |-> i, n |-> sn, d |-> GetDigest(ppms,sn)] : sn \in (mins+1)..maxs}
+
+
 =====
