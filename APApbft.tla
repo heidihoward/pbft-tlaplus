@@ -21,9 +21,4 @@ MC_Views == 0..2
 \* @type: Set(Int);
 MC_Checkpoints == {2}
 
-ConstInit ==
-    /\ ByzR = MC_ByzR
-    /\ R = MC_R
-    /\ Checkpoints = MC_Checkpoints
-
 ====
