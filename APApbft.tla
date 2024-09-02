@@ -1,3 +1,7 @@
+
+
+$ bin/apalache-mc check --config=APApbft.cfg --no-deadlock APApbft.tla
+
 ---- MODULE APApbft ----
 \* PBFT model for checking with Apalache
 
