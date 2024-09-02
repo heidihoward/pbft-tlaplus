@@ -499,8 +499,16 @@ StableCheckpoint(i) ==
 
 \* Set of requests with views and sequence numbers prepared at replica i with sequence numbers higher than n
 PreparedAfterN(i,n) == 
-    {<<m, v, nm>> \in (mlogs[i].request \X Views \X SeqNums) 
-        : nm > n /\ Prepared(m,v,nm,i)}
+    \* {<<m, v, nm>> \in (mlogs[i].request \X Views \X SeqNums) 
+    \*     : nm > n /\ Prepared(m,v,nm,i)}
+    \* TLAPM does not support bound tuples: https://github.com/tlaplus/tlapm/pull/140
+    {y \in mlogs[i].request \X Views \X SeqNums: 
+        LET
+            m == y[1]
+            v == y[2]
+            nm == y[3]
+        IN
+            nm > n /\ Prepared(m, v, nm, i)}
 
 \* Produce a proof that a request m was prepared at replica i with sequence number n and view v
 Pm(m, v, n, i) == [
@@ -515,7 +523,7 @@ GenerateViewChangeMsg(i) ==
     IN [v |-> views[i] + 1,
         n |-> n,
         c |-> sCheckpoint[i],
-        p |-> {Pm(m, v, nm, i) : <<m, v, nm>> \in PreparedAfterN(i, n)},
+        p |-> {Pm(e[1], e[2], e[3], i) : e \in PreparedAfterN(i, n)},
         i |-> i]
 
 \* This specification does not model timers, so view changes are always enabled for all backups.      
