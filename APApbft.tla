@@ -106,9 +106,6 @@ MsgsConstraint ==
             /\ pp.n \in SeqNums
             /\ pp.d \in RequestDigests    
 
-\* THEOREM msgs \in Messages => MsgsConstraint
-\* BY DEF Messages, MsgsConstraint, NewViewMessages, PrepareProof, PrepareMessages, ViewChangeMessages, CheckpointMessages, PrePrepareMessages, CommitMessages, ReplyMessages, RequestMessages
-
 MlogsConstraintEmpty ==
     /\ mlogs = [r \in R |-> [
         request |-> {},
