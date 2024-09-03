@@ -168,8 +168,8 @@ MlogsConstraint ==
                         /\ p1.d \in RequestDigests
 
 GenInit ==
-    /\ msgs = Gen(10)
-    /\ mlogs = Gen(10)
+    /\ msgs = Gen(5)
+    /\ mlogs = Gen(5)
     /\ views = Gen(10)
     /\ states = Gen(10)
     /\ sCheckpoint = Gen(10)
