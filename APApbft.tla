@@ -121,6 +121,9 @@ MlogsConstraintEmpty ==
         ]
 
 MlogsConstraint ==
+    \* mlogs is defined for all replicas (outside of TLA+, one would call it a total function). Without this constraint, 
+    \* Apalache!Gen may generate a function that is not defined for all replicas.
+    /\ DOMAIN mlogs = R  
     /\ \A rr \in DOMAIN mlogs :
         /\ \A r \in mlogs[rr].request :
             /\ r.t \in Tstamps
