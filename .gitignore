@@ -1,6 +1,7 @@
 ## TLA tools
 states/
 _apalache-out/
+.tlacache
 
 ## Core latex/pdflatex auxiliary files:
 *.aux
