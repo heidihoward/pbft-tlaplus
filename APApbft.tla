@@ -12,7 +12,7 @@ MC_R == 0..3
 
 \* Set of requests which are byzantine
 \* @type: Set(Int);
-MC_ByzR == MC_R
+MC_ByzR == {0}  \* Choose one replica to be byzantine.
 
 MC_Tstamps == 1..3
 
