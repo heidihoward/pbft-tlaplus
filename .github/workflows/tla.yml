@@ -27,9 +27,9 @@ jobs:
         if: always()
         run: |
           # Check that Init => SafetyInv
-          ./apalache/bin/apalache-mc check --config=APApbft.cfg --init=GenInit --inv=SafetyInv --length=0 APApbft.tla
+          ./apalache/bin/apalache-mc check --config=APApbft.cfg --init=GenInit --inv=SafetyInv --length=0 APAIndpbft.tla
           # Check that SafetyInv /\ Next => SafetyInv'
-          ./apalache/bin/apalache-mc check --config=APApbft.cfg --init=GenInit --inv=SafetyInv --length=1 APApbft.tla
+          ./apalache/bin/apalache-mc check --config=APApbft.cfg --init=GenInit --inv=SafetyInv --length=1 APAIndpbft.tla
       - name: Upload Apalache's counterexample (if any)
         uses: actions/upload-artifact@v4
         if: always()
