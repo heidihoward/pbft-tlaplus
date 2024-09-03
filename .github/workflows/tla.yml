@@ -23,6 +23,13 @@ jobs:
       - name: Type- and (ordinary) invariant checking with Apalache
         run: |
           ./apalache/bin/apalache-mc check --config=APApbft.cfg APApbft.tla
+      - name: Partial inductive invariant checking with Apalache
+        if: always()
+        run: |
+          # Check that Init => SafetyInv
+          ./apalache/bin/apalache-mc check --config=APApbft.cfg --init=GenInit --inv=SafetyInv --length=0 APApbft.tla
+          # Check that SafetyInv /\ Next => SafetyInv'
+          ./apalache/bin/apalache-mc check --config=APApbft.cfg --init=GenInit --inv=SafetyInv --length=1 APApbft.tla
       - name: Upload Apalache's counterexample (if any)
         uses: actions/upload-artifact@v4
         if: always()
