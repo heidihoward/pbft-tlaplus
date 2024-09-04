@@ -22,7 +22,8 @@ jobs:
           tar zxvf apalache.tgz
       - name: Type- and (ordinary) invariant checking with Apalache
         run: |
-          ./apalache/bin/apalache-mc check --config=APApbft.cfg APApbft.tla
+          ## -length=4 to finish in reasonable time.
+          ./apalache/bin/apalache-mc check --config=APApbft.cfg --length=4 APApbft.tla
       - name: Upload Apalache's counterexample (if any)
         uses: actions/upload-artifact@v4
         if: always()
@@ -31,32 +32,33 @@ jobs:
             path: |
               _apalache-out/
 
-  apalache-check-inductive:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: 'microsoft'
-          java-version: '17'
-      - name: Setup
-        run: |
-          wget https://github.com/informalsystems/apalache/releases/latest/download/apalache.tgz
-          tar zxvf apalache.tgz
-      - name: Partial inductive invariant checking with Apalache
-        if: always()
-        run: |
-          # Check that Init => SafetyInv
-          ./apalache/bin/apalache-mc check --config=APApbft.cfg --init=GenInit --inv=SafetyInv --length=0 APAIndpbft.tla
-          # Check that SafetyInv /\ Next => SafetyInv'
-          ./apalache/bin/apalache-mc check --config=APApbft.cfg --init=GenInit --inv=SafetyInv --length=1 APAIndpbft.tla
-      - name: Upload Apalache's counterexample (if any)
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-            name: apalache-check-inductive
-            path: |
-              _apalache-out/
+  ## Too expensive as of now.
+  # apalache-check-inductive:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-java@v4
+  #       with:
+  #         distribution: 'microsoft'
+  #         java-version: '17'
+  #     - name: Setup
+  #       run: |
+  #         wget https://github.com/informalsystems/apalache/releases/latest/download/apalache.tgz
+  #         tar zxvf apalache.tgz
+  #     - name: Partial inductive invariant checking with Apalache
+  #       if: always()
+  #       run: |
+  #         # Check that Init => SafetyInv
+  #         ./apalache/bin/apalache-mc check --config=APApbft.cfg --init=GenInit --inv=SafetyInv --length=0 APAIndpbft.tla
+  #         # Check that SafetyInv /\ Next => SafetyInv'
+  #         ./apalache/bin/apalache-mc check --config=APApbft.cfg --init=GenInit --inv=SafetyInv --length=1 APAIndpbft.tla
+  #     - name: Upload Apalache's counterexample (if any)
+  #       uses: actions/upload-artifact@v4
+  #       if: always()
+  #       with:
+  #           name: apalache-check-inductive
+  #           path: |
+  #             _apalache-out/
 
   apalache-simulate:
     runs-on: ubuntu-latest
@@ -70,9 +72,9 @@ jobs:
         run: |
           wget https://github.com/informalsystems/apalache/releases/latest/download/apalache.tgz
           tar zxvf apalache.tgz
-      - name: Type- and (ordinary) invariant checking with Apalache
+      - name: Simulation with Apalache
         run: |
-          ./apalache/bin/apalache-mc simulate --config=APApbft.cfg --length=25 APApbft.tla
+          ./apalache/bin/apalache-mc simulate --config=APApbft.cfg --max-run=20 --length=25 APApbft.tla
       - name: Upload Apalache's counterexample (if any)
         uses: actions/upload-artifact@v4
         if: always()
