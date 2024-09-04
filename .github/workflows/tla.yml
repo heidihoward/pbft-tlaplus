@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  apalache:
+  apalache-check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,6 +23,26 @@ jobs:
       - name: Type- and (ordinary) invariant checking with Apalache
         run: |
           ./apalache/bin/apalache-mc check --config=APApbft.cfg APApbft.tla
+      - name: Upload Apalache's counterexample (if any)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+            name: apalache-check
+            path: |
+              _apalache-out/
+
+  apalache-check-inductive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'microsoft'
+          java-version: '17'
+      - name: Setup
+        run: |
+          wget https://github.com/informalsystems/apalache/releases/latest/download/apalache.tgz
+          tar zxvf apalache.tgz
       - name: Partial inductive invariant checking with Apalache
         if: always()
         run: |
@@ -34,10 +54,34 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
+            name: apalache-check-inductive
             path: |
-              _apalache-out/APApbft.tla/
+              _apalache-out/
 
-  tlc:
+  apalache-simulate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'microsoft'
+          java-version: '17'
+      - name: Setup
+        run: |
+          wget https://github.com/informalsystems/apalache/releases/latest/download/apalache.tgz
+          tar zxvf apalache.tgz
+      - name: Type- and (ordinary) invariant checking with Apalache
+        run: |
+          ./apalache/bin/apalache-mc simulate --config=APApbft.cfg --length=25 APApbft.tla
+      - name: Upload Apalache's counterexample (if any)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+            name: apalache-simulate
+            path: |
+              _apalache-out/
+
+  tlc-generate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,5 +93,20 @@ jobs:
           sudo ./install.sh
       - name: Sany
         run: sany *.tla
-      - name: Random exploration with TLC
-        run: tlc -workers auto -generate num=1000 -depth 25 MCpbft.tla
+      - name: Random generation with TLC
+        run: JAVA_OPTS="-Dtlc2.TLC.stopAfter=600 -XX:+UseParallelGC" tlc -workers auto -generate MCpbft.tla
+
+  tlc-simulate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install TLA+ Tools
+        run: |
+          git clone https://github.com/pmer/tla-bin.git
+          cd tla-bin
+          ./download_or_update_tla.sh --nightly
+          sudo ./install.sh
+      - name: Sany
+        run: sany *.tla
+      - name: Random simulation with TLC
+        run: JAVA_OPTS="-Dtlc2.TLC.stopAfter=600 -XX:+UseParallelGC" tlc -workers auto -simulate MCpbft.tla
