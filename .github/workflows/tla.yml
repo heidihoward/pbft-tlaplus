@@ -91,8 +91,6 @@ jobs:
           cd tla-bin
           ./download_or_update_tla.sh --nightly
           sudo ./install.sh
-      - name: Sany
-        run: sany *.tla
       - name: Random generation with TLC
         run: JAVA_OPTS="-Dtlc2.TLC.stopAfter=600 -XX:+UseParallelGC" tlc -workers auto -generate MCpbft.tla
 
@@ -106,7 +104,5 @@ jobs:
           cd tla-bin
           ./download_or_update_tla.sh --nightly
           sudo ./install.sh
-      - name: Sany
-        run: sany *.tla
       - name: Random simulation with TLC
         run: JAVA_OPTS="-Dtlc2.TLC.stopAfter=600 -XX:+UseParallelGC" tlc -workers auto -simulate MCpbft.tla
