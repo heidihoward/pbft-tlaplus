@@ -21,4 +21,8 @@ MC_Views == 0..2
 \* @type: Set(Int);
 MC_Checkpoints == {2}
 
+\* Assume that the number of byzantine replicas is less than what the protocol can tolerate.
+\* See note of pbft!ByzR.
+ASSUME Cardinality(ByzR) <= F
+
 ====
