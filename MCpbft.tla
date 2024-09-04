@@ -103,5 +103,45 @@ MC_GenerateO(V,i,v) ==
         maxs == Max0({ppm.n: ppm \in ppms}) IN
     {[v |-> v, p |-> i, n |-> sn, d |-> GetDigest(ppms,sn)] : sn \in (mins+1)..maxs}
 
+-------
+
+
+MCRandomSetOfSubsets(S) ==
+    (* Up to 2^8 subsets of S. *)
+    IF Cardinality(S) <= 8
+    \* Exhaustively generate all subsets up to and including 512 elements.
+    THEN SUBSET S
+    \* Constraints RandomSetOfSubsets(k,n,S) operator:
+    \* k < 2^|S| and n \in 0..Cardinality(S)
+    \* see https://github.com/tlaplus/tlaplus/blob/master/tlatools/org.lamport.tlatools/src/tla2sany/StandardModules/Randomization.tla
+    ELSE RandomSetOfSubsets(2^8, Cardinality(S) \div 2, S)
+
+SimInjectViewChange(i) ==
+    /\ \E v \in Views, n \in (SeqNums \cup {0}), 
+            c \in MCRandomSetOfSubsets(msgs.checkpoint), 
+            p \in MCRandomSetOfSubsets([preprepare : msgs.preprepare, prepare : MCRandomSetOfSubsets(msgs.prepare)]) :
+        \* Any replica that receive a view change message will check that the checkpoint/prepare proofs are valid
+        \* Therefore, we do not need to brother injecting view change messages with invalid proofs
+        /\ ValidCheckpointProof(c, n)
+        /\ \A pp \in p: ValidPrepareProof(pp, n)
+        /\ msgs' = [msgs EXCEPT !.viewchange = @ \cup {[
+            v |-> v,
+            n |-> n,
+            c |-> c,
+            p |-> p,
+            i |-> i]}]
+    /\ UNCHANGED <<mlogs, views, states, sCheckpoint, vChange>>
+
+SimInjectNewView(i) ==
+    /\ \E v \in Views, vc \in MCRandomSetOfSubsets(msgs.viewchange), o \in MCRandomSetOfSubsets(msgs.preprepare) : 
+        /\ i = v % N
+        /\ \A vcm \in vc: ValidViewChange(vcm, v)
+        /\ o = GenerateO(vc, i, v)
+        /\ msgs' = [msgs EXCEPT !.newview = @ \cup {[
+            v |-> v,
+            vc |-> vc,
+            o |-> o,
+            p |-> i]}]
+    /\ UNCHANGED <<mlogs, views, states, sCheckpoint, vChange>>
 
 =====
