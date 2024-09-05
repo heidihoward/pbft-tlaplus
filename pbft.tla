@@ -602,7 +602,7 @@ GenerateO(V,i,v) ==
         maxs == Max0({ppm.n: ppm \in ppms}) 
         \* Apalache does not yet support integer ranges with non-constant bounds:
         \* https://github.com/apalache-mc/apalache/blob/main/docs/src/apalache/known-issues.md#integer-ranges-with-non-constant-bounds
-        apa == { j \in Views : mins+1 <= j /\ j <= maxs} IN
+        apa == { j \in SeqNums : mins+1 <= j /\ j <= maxs} IN
     {[v |-> v, p |-> i, n |-> sn, d |-> GetDigest(ppms,sn)] : sn \in apa }
 
 \* Castro & Liskov S4.4: 
@@ -677,7 +677,7 @@ Spec == Init /\ [][Next]_vars
 \* Castro & Liskov S4.1: 
     \* The client waits for f+1 replies with valid signatures from different replicas, and with the same t and r, before accepting the result r.
 
-Decided(t,r) == 
+Decided(t,r) ==
     Cardinality({rm.i: rm \in {m \in msgs.reply: m.t = t /\ m.r = r}}) >= F+1
 
 OneReplyInv == 
