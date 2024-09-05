@@ -83,6 +83,29 @@ jobs:
             path: |
               _apalache-out/
 
+  apalache-simulate-geninit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'microsoft'
+          java-version: '17'
+      - name: Setup
+        run: |
+          wget https://github.com/informalsystems/apalache/releases/latest/download/apalache.tgz
+          tar zxvf apalache.tgz
+      - name: Simulation GenInit predicate with Apalache
+        run: |
+          ./apalache/bin/apalache-mc simulate --config=APApbft.cfg --init=GenInit --max-run=1 --length=1 APAIndpbft.tla
+      - name: Upload Apalache's counterexample (if any)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+            name: apalache-simulate-geninit
+            path: |
+              _apalache-out/
+
   tlc-generate:
     runs-on: ubuntu-latest
     steps:
